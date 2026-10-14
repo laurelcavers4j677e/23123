@@ -1,7 +1,7 @@
 diff -ruN a/CHANGELOG_v0.13.7.10.txt b/CHANGELOG_v0.13.7.10.txt
 --- a/CHANGELOG_v0.13.7.10.txt	1970-01-01 00:00:00.000000000 +0000
-+++ b/CHANGELOG_v0.13.7.10.txt	2026-10-14 04:07:05.288148303 +0000
-@@ -0,0 +1,59 @@
++++ b/CHANGELOG_v0.13.7.10.txt	2026-10-14 06:01:56.374327630 +0000
+@@ -0,0 +1,65 @@
 +SU LinkHub v0.13.7.10
 +
 +在 v0.13.7.9 基础上：
@@ -57,6 +57,12 @@ diff -ruN a/CHANGELOG_v0.13.7.10.txt b/CHANGELOG_v0.13.7.10.txt
 +修复：
 +- 只有一根轴为 0 时，该轴按另外两轴比例的平均值处理（零厚度轴上没有几何，形状不变），
 +  矩阵保持可逆，接管实例时的 P^-1 不会出错。两根或三根轴为 0（线、空组件）仍拒绝入库。
++- 用户样例“单独脏衣篮.skp”（Pic2Shape 生成的朝向相机组件“组件#388”，121.9 × 0 × 486.2mm）：
++  厚度不是严格 0，而是 3.07e-12 英寸的浮点残差。旧阈值 1e-12 判不出零厚度，按“目标厚度 0 / 残差”算出
++  1e-12 的比例，接管实例时 P^-1 报“坐标变换不可逆”，写好的库文件随即回滚。
++  现在零厚度判定使用 SketchUp 长度容差 0.001 英寸，源厚度或目标厚度低于容差都按零厚度处理。
++- 朝向相机组件的入库尺寸复核：SketchUp 重绘时会把包装里的子实例转向镜头，外包盒随之变化。
++  Z 轴仍严格比较，水平方向改为比较旋转不变量（宽 w、厚 t：sqrt(w²+t²) ≤ hypot(x,y) ≤ w+t），不再误报尺寸复核失败。
 +- 朝向相机组件的清单长宽改为一致，都取 X/Y 中的最大值（零厚度时宽不再是 0；有厚度时同样取最大值）。
 +  模型库更新写入的长宽同样按此规则。
 +
@@ -132,7 +138,7 @@ diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
      # v0.13.7.5：清单窗口布局整理（诊断菜单、底部提交条、空间胶囊页签、筛选小按钮、模型变化提示条）；合并别名提交到保留模型；朝向相机包装不累积。
 diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
 --- a/su_linkhub/runtime.rb	2026-10-13 10:10:56.000000000 +0000
-+++ b/su_linkhub/runtime.rb	2026-10-14 04:06:08.577887626 +0000
++++ b/su_linkhub/runtime.rb	2026-10-14 06:01:04.500433348 +0000
 @@ -24328,8 +24328,13 @@
                changed += width * height
              end
@@ -281,7 +287,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          metadata['length_mm'] = horizontal[0].round(4)
          metadata['width_mm'] = horizontal[1].round(4)
          metadata['height_mm'] = written_axis_mm[2].to_f.abs.round(4)
-@@ -42734,13 +42794,28 @@
+@@ -42734,13 +42794,33 @@
        desired_mm = soft_library_actual_axis_dimensions_mm(instance, model) unless Array(desired_mm).length == 3
        # 入库比例同样必须使用当前真实几何，禁止使用可能过期的持久化 bounds。
        extents = soft_fresh_definition_axis_extents(instance.definition)
@@ -292,8 +298,13 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
 +      # 零厚度轴上没有几何，缩放多少都不改变形状；这里只需要一个有效且可逆的比例，
 +      # 取另外两轴比例的平均值，保持接近等比，后续 P^-1 接管实例时不会出现不可逆矩阵。
 +      # 两轴或三轴都为 0（线或空组件）仍然拒绝。
-+      flat_limit = 1.0e-9
-+      flat_axes = (0..2).select { |index| extents[index].to_f.abs <= flat_limit }
++      # 判定“零厚度”用 SketchUp 自身的长度容差（0.001 英寸）。Pic2Shape 等插件生成的卡片
++      # 厚度是 1e-12 级的浮点残差而不是严格 0（实测 3.07e-12 英寸），旧阈值 1e-12 判不出，
++      # 随后按 目标/残差 算出 1e-12 级比例，接管时 P^-1 报“不可逆”。源厚度或目标厚度任一低于容差都按零厚度处理。
++      flat_limit = 1.0e-3
++      flat_axes = (0..2).select do |index|
++        extents[index].to_f.abs <= flat_limit || desired_mm[index].to_f.abs / 25.4 <= flat_limit
++      end
 +      if flat_axes.length >= 2
 +        raise '家具当前真实几何尺寸无效（至少两根轴尺寸为 0），无法安全计算入库缩放。'
        end
@@ -313,6 +324,62 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        end
        determinant = basis[0].cross(basis[1]).dot(basis[2])
        scales[0] = -scales[0] if preserve_reflection && determinant.to_f < 0.0
+@@ -42893,6 +42973,24 @@
+       { changed: false, depth: 0, definition: (instance.definition rescue nil) }
+     end
+ 
++    # 入库尺寸复核。普通家具逐轴比较（容差 0.5mm 或 0.2%）。
++    # v0.13.7.10：朝向相机组件在 SketchUp 重绘时会绕 Z 轴转向镜头，包装定义里的子实例外包盒
++    # 随之变化（例如 122×0 变成 70×100）。这类组件 Z 轴仍严格比较；水平方向比较旋转不变量：
++    # 宽 w、厚 t 的矩形绕 Z 旋转后外包盒 (x, y) 满足 sqrt(w²+t²) <= hypot(x, y) <= w+t。
++    def soft_library_ingest_dimensions_invalid?(reference, measured, face_camera: false)
++      tolerance_for = ->(value) { [0.5, value.to_f.abs * 0.002].max }
++      axis_invalid = lambda do |index|
++        (reference[index].to_f.abs - measured[index].to_f.abs).abs > tolerance_for.call(reference[index])
++      end
++      return (0..2).any? { |index| axis_invalid.call(index) } unless face_camera
++      return true if axis_invalid.call(2)
++      w = reference[0].to_f.abs
++      t = reference[1].to_f.abs
++      horizontal = Math.hypot(measured[0].to_f.abs, measured[1].to_f.abs)
++      tolerance = tolerance_for.call([w, t].max)
++      horizontal < Math.hypot(w, t) - tolerance || horizontal > (w + t) + tolerance
++    end
++
+     def build_soft_library_update_definition!(entity, library_item, model = Sketchup.active_model, normalize_axes: true, preserve_instance_reflection: true, expected_axis_mm: nil)
+       expected_mm = Array(expected_axis_mm).map(&:to_f)
+       expected_mm = soft_library_actual_axis_dimensions_mm(entity, model) unless expected_mm.length == 3 && expected_mm.all? { |value| value.finite? && value > 1.0e-6 }
+@@ -42913,12 +43011,12 @@
+       # 自身的有效几何外包尺寸就是约 100mm，而不是把缩放留给项目实例。
+       soft_clear_definition_bounds_cache!(wrapper)
+       actual_mm = soft_fresh_definition_axis_extents(wrapper).map { |value| value.to_f.abs * 25.4 }
+-      errors = expected_mm.each_with_index.map { |value, index| (value.to_f.abs - actual_mm[index].to_f.abs).abs }
+-      invalid = errors.each_with_index.any? do |error, index|
+-        tolerance = [0.5, expected_mm[index].to_f.abs * 0.002].max
+-        error > tolerance
++      source_definition_for_check = entity.respond_to?(:definition) ? entity.definition : nil
++      face_camera_check = !!(source_definition_for_check && soft_definition_face_camera?(source_definition_for_check))
++      if face_camera_check
++        log("朝向相机组件入库尺寸复核：水平方向按旋转不变量比较（Z 轴严格比较）：#{library_item['name']}")
+       end
+-      if invalid
++      if soft_library_ingest_dimensions_invalid?(expected_mm, actual_mm, face_camera: face_camera_check)
+         raise "入库尺寸复核失败：目标 #{expected_mm.map { |v| v.round(2) }.join(' × ')}mm，实际 #{actual_mm.map { |v| v.round(2) }.join(' × ')}mm。"
+       end
+       # 尺寸确认以后再按源实例的世界朝向归正 wrapper：三个局部轴中与世界 Z
+@@ -42936,11 +43034,7 @@
+       # 只在副本上尝试压平；压平后尺寸不一致就自动退回未压平但几何正确的候选。
+       payload_transform_for_compensation = payload.transformation
+       dimension_invalid = lambda do |reference, measured|
+-        reference.each_with_index.any? do |value, index|
+-          error = (value.to_f.abs - measured[index].to_f.abs).abs
+-          tolerance = [0.5, value.to_f.abs * 0.002].max
+-          error > tolerance
+-        end
++        soft_library_ingest_dimensions_invalid?(reference, measured, face_camera: face_camera_check)
+       end
+ 
+       soft_clear_definition_bounds_cache!(wrapper)
 diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
 --- a/su_linkhub/thumbnail_views.rb	2026-10-13 10:16:46.000000000 +0000
 +++ b/su_linkhub/thumbnail_views.rb	2026-10-14 03:43:04.348435054 +0000

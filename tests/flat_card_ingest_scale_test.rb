@@ -7,7 +7,7 @@ runtime = ARGV[0] or abort 'usage: flat_card_ingest_scale_test.rb <runtime.rb>'
 source = File.read(runtime, encoding: 'utf-8')
 
 def extract_method(source, name)
-  start = source.index(/^    def #{Regexp.escape(name)}\b/) or raise "method #{name} not found"
+  start = source.index(/^    def #{Regexp.escape(name)}(?![A-Za-z0-9_])/) or raise "method #{name} not found"
   finish = source.index(/^    end\n/, start) or raise "end of #{name} not found"
   source[start...(finish + 8)]
 end
@@ -67,6 +67,11 @@ class Harness
 end
 Harness.class_eval(extract_method(source, 'soft_instance_scale_only_transformation'))
 Harness.class_eval(extract_method(source, 'soft_face_camera_dimensions_mm'))
+begin
+  Harness.class_eval(extract_method(source, 'soft_library_ingest_dimensions_invalid?'))
+rescue RuntimeError
+  nil # 旧版没有这个方法
+end
 
 failures = []
 h = Harness.new
@@ -89,6 +94,33 @@ begin
   failures << "scaled card #{scales.inspect}" unless scales.map { |s| s.round(9) } == [2.0, 2.0, 2.0]
 rescue StandardError => e
   failures << "scaled card raised: #{e.message}"
+end
+
+# 用户样例“单独脏衣篮.skp”：Pic2Shape 生成的朝向相机组件“组件#388”，
+# 定义外包盒 121.92 × 0.0 × 486.19mm，Y 方向厚度是 3.07e-12 英寸的浮点残差（不是严格 0）。
+basket_extents = [121.91779183 / 25.4, 3.069544618483633e-12, 486.19433333 / 25.4]
+basket = FakeInstance.new(FakeDefinition.new(basket_extents, face: true))
+[[121.91779183, 0.0, 486.19433333], [121.91779183, 3.069544618483633e-12 * 25.4, 486.19433333]].each do |desired|
+  begin
+    scales = h.soft_instance_scale_only_transformation(basket, nil, desired_mm: desired)
+    puts "basket scales (desired y=#{desired[1]}): #{scales.inspect}"
+    failures << "basket scales #{scales.inspect}" unless scales.all? { |v| (v - 1.0).abs < 1e-6 }
+  rescue StandardError => e
+    failures << "basket raised: #{e.message}"
+  end
+end
+
+# 朝向相机：包装内子实例被 SketchUp 转向镜头后外包盒变化，尺寸复核不应误报。
+if h.respond_to?(:soft_library_ingest_dimensions_invalid?)
+  w = 121.92
+  rotated = [w * Math.cos(0.96), w * Math.sin(0.96), 486.19]
+  failures << 'face camera rotated rejected' if h.soft_library_ingest_dimensions_invalid?([w, 0.0, 486.19], rotated, face_camera: true)
+  failures << 'face camera wrong height accepted' unless h.soft_library_ingest_dimensions_invalid?([w, 0.0, 486.19], [w, 0.0, 400.0], face_camera: true)
+  failures << 'face camera wrong width accepted' unless h.soft_library_ingest_dimensions_invalid?([w, 0.0, 486.19], [60.0, 0.0, 486.19], face_camera: true)
+  failures << 'normal rotated accepted' unless h.soft_library_ingest_dimensions_invalid?([w, 0.0, 486.19], rotated, face_camera: false)
+  failures << 'normal exact rejected' if h.soft_library_ingest_dimensions_invalid?([w, 10.0, 486.19], [w, 10.2, 486.19], face_camera: false)
+else
+  failures << 'no face-camera dimension check'
 end
 
 # 线或空组件仍然拒绝。
