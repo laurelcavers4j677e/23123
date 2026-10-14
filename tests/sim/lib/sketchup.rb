@@ -431,6 +431,15 @@ module Sketchup
         o = t.origin
         t = Geom::Transformation.rotation(o, Z_AXIS, ang) * t
       end
+      if ENV['FACEME_BOUNDS'] == 'disk' && @definition.behavior.always_face_camera? && parent.is_a?(Sketchup::Entities) && parent.owner.is_a?(Sketchup::ComponentDefinition)
+        # 现场 SketchUp：包装里的朝向相机子组件外包盒按绕自身 Z 轴的转动范围计算。
+        o = t.origin
+        pts = (0..7).map { |i| b.corner(i).transform(t) }
+        r = pts.map { |q| Math.hypot(q.x - o.x, q.y - o.y) }.max
+        zs = pts.map(&:z)
+        box.add(Geom::Point3d.new(o.x - r, o.y - r, zs.min), Geom::Point3d.new(o.x + r, o.y + r, zs.max))
+        return box
+      end
       8.times { |i| box.add(b.corner(i).transform(t)) }
       box
     end

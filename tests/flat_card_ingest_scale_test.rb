@@ -64,6 +64,7 @@ class Harness
   def soft_library_actual_axis_dimensions_mm(instance, *_args, **_kw) = instance.definition.extents.map { |v| v * 25.4 }
   def soft_exact_axes_transformation(_origin, x, y, z) = [x.x, y.y, z.z]
   def soft_definition_face_camera?(definition) = definition.behavior.always_face_camera?
+  def soft_face_camera_axis_extents_inches(_definition) = nil
 end
 Harness.class_eval(extract_method(source, 'soft_instance_scale_only_transformation'))
 Harness.class_eval(extract_method(source, 'soft_face_camera_dimensions_mm'))
