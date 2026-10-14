@@ -1,7 +1,7 @@
 diff -ruN orig/CHANGELOG_v0.13.7.10.txt /tmp/ext/CHANGELOG_v0.13.7.10.txt
 --- a/CHANGELOG_v0.13.7.10.txt	1970-01-01 00:00:00.000000000 +0000
-+++ b/CHANGELOG_v0.13.7.10.txt	2026-10-14 03:23:35.630427527 +0000
-@@ -0,0 +1,16 @@
++++ b/CHANGELOG_v0.13.7.10.txt	2026-10-14 03:29:01.283038573 +0000
+@@ -0,0 +1,17 @@
 +SU LinkHub v0.13.7.10
 +
 +在 v0.13.7.9 基础上：修复浅色材质家具（米白罗马帘、白纱帘、白瓷等）入库后缩略图为白图、点刷新仍为白图。
@@ -15,7 +15,8 @@ diff -ruN orig/CHANGELOG_v0.13.7.10.txt /tmp/ext/CHANGELOG_v0.13.7.10.txt
 +- 缩略图渲染开启 1px 轮廓线，浅色家具始终有可见外轮廓。
 +- 白底校正：原图已是白底时，抠白容差从 34 降到 6，只处理几乎纯白的背景；灰底恢复仍用 34。
 +- 白底校正后若主体像素几乎全部消失，撤销本次抠白，保留原像素。
-+- 内置缩略图提取与源 SKP 缓存写入：增加主体像素验收；先在临时文件上校正和验收，通过后才替换正式缩略图，空白图不覆盖旧图。
++- 内置缩略图提取与源 SKP 缓存写入：增加主体像素验收；先在临时文件上校正和验收，通过后才替换正式缩略图，空白图不覆盖旧图（源 SKP 不因缓存图空白而回滚）。
++- 轮廓线宽度纳入渲染设置快照，缩略图生成后恢复用户原来的轮廓线宽度。
 +
 +其余同 v0.13.7.9（见 CHANGELOG_v0.13.7.9.txt）。
 diff -ruN orig/su_linkhub/README.txt /tmp/ext/su_linkhub/README.txt
@@ -87,7 +88,7 @@ diff -ruN orig/su_linkhub/main.rb /tmp/ext/su_linkhub/main.rb
      # v0.13.7.5：清单窗口布局整理（诊断菜单、底部提交条、空间胶囊页签、筛选小按钮、模型变化提示条）；合并别名提交到保留模型；朝向相机包装不累积。
 diff -ruN orig/su_linkhub/runtime.rb /tmp/ext/su_linkhub/runtime.rb
 --- a/su_linkhub/runtime.rb	2026-10-13 10:10:56.000000000 +0000
-+++ b/su_linkhub/runtime.rb	2026-10-14 03:22:27.561003394 +0000
++++ b/su_linkhub/runtime.rb	2026-10-14 03:29:01.159433260 +0000
 @@ -24328,8 +24328,13 @@
                changed += width * height
              end
@@ -153,6 +154,15 @@ diff -ruN orig/su_linkhub/runtime.rb /tmp/ext/su_linkhub/runtime.rb
      # 严格验证缩略图四角确实已经恢复为明亮白底。刷新流程不能只验证
      # “文件能读取”，否则图像处理失败时仍会把原来的深灰缩略图当作成功写回。
      def soft_thumbnail_corner_luminance(path)
+@@ -24501,7 +24542,7 @@
+       keys = %w[
+         InactiveHidden InactiveFade DrawGround DrawHorizon DrawHidden DrawBackEdges
+         DrawDepthQue DrawLineEnds DrawProfilesOnly DisplaySketchAxes DisplayInstanceAxes
+-        DisplayFog DisplayColorByLayer DisplayWatermarks ModelTransparency DrawSilhouettes
++        DisplayFog DisplayColorByLayer DisplayWatermarks ModelTransparency DrawSilhouettes SilhouetteWidth
+         Texture RenderMode FaceFrontColor FaceBackColor BackgroundColor SkyColor GroundColor
+         AmbientOcclusion AmbientOcclusionDistance AmbientOcclusionIntensity
+         AmbientOcclusionColor AmbientOcclusionMultiplier DisplaySectionCuts DisplaySectionPlanes
 @@ -24539,7 +24580,11 @@
          'DisplaySectionCuts' => false,
          'DisplaySectionPlanes' => false,
@@ -166,16 +176,24 @@ diff -ruN orig/su_linkhub/runtime.rb /tmp/ext/su_linkhub/runtime.rb
          'FaceFrontColor' => Sketchup::Color.new(238, 238, 238),
          'FaceBackColor' => Sketchup::Color.new(222, 222, 222),
          'AmbientOcclusion' => false,
-@@ -24846,6 +24891,8 @@
+@@ -24846,8 +24891,14 @@
              linkhub_copy_file(verify, cache_temp)
              raise '新缩略图缓存白底校正失败。' unless normalize_soft_thumbnail_white_background!(cache_temp)
              raise '新缩略图缓存仍为灰暗背景。' unless soft_thumbnail_white_background?(cache_temp)
+-            linkhub_mv(cache_temp, cache_thumbnail_path)
+-            record_soft_thumbnail!(path, cache_thumbnail_path, root, defer: defer_thumbnail_meta)
 +            # v0.13.7.10：四角白只能证明背景正确，不能证明家具还在；空白图不覆盖旧缓存。
-+            raise '新缩略图缓存没有检测到模型主体（空白图），已保留旧图。' unless soft_thumbnail_view_content_valid?(cache_temp)
-             linkhub_mv(cache_temp, cache_thumbnail_path)
-             record_soft_thumbnail!(path, cache_thumbnail_path, root, defer: defer_thumbnail_meta)
++            # 此时源 SKP 已写入并验证成功，不能为了缓存图质量而回滚源文件，只跳过缓存写入。
++            if soft_thumbnail_view_content_valid?(cache_temp)
++              linkhub_mv(cache_temp, cache_thumbnail_path)
++              record_soft_thumbnail!(path, cache_thumbnail_path, root, defer: defer_thumbnail_meta)
++            else
++              log("新缩略图缓存没有检测到模型主体（空白图），已保留旧缓存图：#{path}")
++            end
            end
-@@ -24891,9 +24938,12 @@
+         rescue StandardError
+           if File.file?(path) && defined?(candidate_content_signature) && !candidate_content_signature.to_s.empty?
+@@ -24891,9 +24942,12 @@
          log("源模型没有内置缩略图，已跳过后台提取；可在卡片右上角点击刷新生成：#{path}")
          return false
        end
