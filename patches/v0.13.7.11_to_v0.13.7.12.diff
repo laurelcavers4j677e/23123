@@ -1,0 +1,222 @@
+diff -ruN a/CHANGELOG_v0.13.7.12.txt b/CHANGELOG_v0.13.7.12.txt
+--- a/CHANGELOG_v0.13.7.12.txt	1970-01-01 00:00:00.000000000 +0000
++++ b/CHANGELOG_v0.13.7.12.txt	2026-10-14 06:50:52.767034833 +0000
+@@ -0,0 +1,23 @@
++SU LinkHub v0.13.7.12
++
++在 v0.13.7.11 基础上：朝向相机卡片（卡片人、Pic2Shape FaceMe 贴图组件）入库的全面检查与补强。
++
++检查方法：
++- 用模拟的 SketchUp API 在 Linux 上直接运行插件真实代码，跑完整的“登记待入库 → 退出空间 → 逐件写库 → 接管实例”
++  队列流程，以及“已入库卡片再更新”流程。样例：用户文件“单独脏衣篮.skp”的真实组件尺寸
++  （121.92 × 0 × 486.19mm，厚度为 3.07e-12 英寸残差）、Sree 卡片人（630.7 × 0 × 1593.5mm，严格 0 厚度）、普通盒子。
++- 模拟 SketchUp 把包装里的朝向相机子组件转向镜头。
++- v0.13.7.9 复现了现场提示：“家具入库完成 · 成功 1 · 失败：摆件/收纳/脏衣篮、摆件/收纳/卡片人”，
++  原因分别是“入库尺寸复核失败：目标 121.92 × 0.0 × 486.19mm，实际 69.92 × 99.87 × 486.19mm。”
++  和“家具当前真实几何尺寸无效，无法安全计算入库缩放。”。v0.13.7.11 起两者都已修复。
++
++本版补强：
++- 入库尺寸改为直接变换轴向量计算（不含平移）。旧版用两个世界坐标点相减，家具离原点很远时，
++  极薄卡片的厚度会被浮点抵消成 0 或噪声。普通家具结果不变。
++- 空间内登记时捕获的尺寸不再被丢弃。旧条件要求三轴都 > 1e-6mm，卡片永远不满足，退出空间后在根层
++  重新测量（不含所属空间的变换）。现在只要求三轴有限、非负，且至少两根轴有效。
++- 朝向相机卡片的库尺寸（library_actual_axis_mm、ingested_actual_axis_mm、长宽高）记录组件自身的轴向尺寸，
++  不再记录被转向镜头后的外包盒（例如 69.9 × 99.9）。
++- 入库队列结束时的悬浮提示直接带上第一条失败原因，不必再翻日志。
++
++其余同 v0.13.7.11（见 CHANGELOG_v0.13.7.11.txt）。
+diff -ruN a/su_linkhub/README.txt b/su_linkhub/README.txt
+--- a/su_linkhub/README.txt	2026-10-14 06:07:33.482839700 +0000
++++ b/su_linkhub/README.txt	2026-10-14 06:50:52.765034822 +0000
+@@ -1,6 +1,6 @@
+-SU LinkHub v0.13.7.11
++SU LinkHub v0.13.7.12
+ 
+-本版新增（详见 CHANGELOG_v0.13.7.11.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
++本版新增（详见 CHANGELOG_v0.13.7.12.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
+ - 浅色家具缩略图：米白/浅灰材质（如罗马帘、纱帘）入库或刷新后不再变成白图；缩略图带细轮廓线。
+ - 缩略图刷新：严格检测模型主体；白图不会覆盖旧图或误报成功，并关闭项目剖切影响。
+ - 家具选择：自动清理旧版遗留的受管家具锁定，家具保持可选择；单件编辑继续安全隔离。
+@@ -17,7 +17,7 @@
+ - 发布/入库不再因个别家具缺代理而整单失败：缺代理家具以真模型随包发布，代理后台补齐。
+ - 来源同步不再把正在调整的联动副本弹回；发布前复核协同组件签名，避免“显示最新但内容旧”。
+ 
+-日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.11.log
++日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.12.log
+ 诊断输出：%TEMP%\SU_LinkHub\diagnostics\
+ 
+ ----------------------------------------------------------------
+diff -ruN a/su_linkhub/constants.rb b/su_linkhub/constants.rb
+--- a/su_linkhub/constants.rb	2026-10-14 06:07:33.482853651 +0000
++++ b/su_linkhub/constants.rb	2026-10-14 06:50:52.764826124 +0000
+@@ -4,7 +4,7 @@
+   module SULinkHubMultiSpace
+     module Runtime
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.11'.freeze
++    EXTENSION_VERSION = '0.13.7.12'.freeze
+     # 从这一版开始，空间编辑域进一步收口：整个 SKP 根层级不能作为空间修改容器，
+     # 空间内部原生锁定会被自动撤销；同时继承 13.5.5 的软装落位、冲突阻止和安全快照。
+     # 因此低于 0.13.6.18 的协作者仍可能绕过“编辑前必须最新”和强制恢复隔离规则，当前版本会明确提示团队统一升级。
+@@ -31,16 +31,16 @@
+     rescue StandardError
+       nil
+     end
+-    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.11.log').freeze
+-    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.11.log').freeze
+-    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.11.log').freeze
++    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.12.log').freeze
++    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.12.log').freeze
++    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.12.log').freeze
+     BACKGROUND_PUBLISH_QUEUE_PATH = File.join(TEMP_STATE_DIR, 'SU_LinkHub_后台发布队列_v0.13.6.100.json').freeze
+     BACKGROUND_PUBLISH_HISTORY_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布历史.jsonl').freeze
+     BACKGROUND_PUBLISH_LAST_STAGE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布最后阶段.txt').freeze
+-    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.11.log').freeze
++    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.12.log').freeze
+     SPACE_PUBLISH_QUEUE_POLL_INTERVAL = 0.12
+     SPACE_PUBLISH_QUEUE_MAX_HISTORY = 12
+-    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.11.log').freeze
++    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.12.log').freeze
+     TASK_CENTER_MAX_HISTORY = 18
+     # Ruby 后台线程只处理不触碰 SketchUp 模型/视图 API 的文件任务。两个 worker
+     # 可以让目录扫描、缓存落盘与 Excel 导出互不阻塞，同时避免机械盘/NAS 上过多
+diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
+--- a/su_linkhub/main.rb	2026-10-14 06:07:33.480797527 +0000
++++ b/su_linkhub/main.rb	2026-10-14 06:50:52.766443438 +0000
+@@ -25,6 +25,7 @@
+       const_defined?(:Runtime, false) ? const_get(:Runtime, false) : nil
+     end
+ 
++    # v0.13.7.12：朝向相机卡片入库尺寸改按轴向量测量、空间内捕获尺寸不再丢弃、库尺寸记录组件自身轴向尺寸、失败提示带原因。
+     # v0.13.7.11：厚度为 0 的片状组件（卡片人）可以入库；朝向相机组件清单长宽一致取最大值。
+     # v0.13.7.10：浅色材质缩略图不再被抹白：缩略图渲染开启细轮廓线；白底抠图收紧容差并在抹掉主体时撤销；内置缩略图先验收主体再替换。
+     # v0.13.7.10：刷新/反转缩略图视图在视口截图拍空时改用组件缩略图离屏渲染；失败时不再推送旧白图；拍空保留诊断。
+diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
+--- a/su_linkhub/runtime.rb	2026-10-14 06:07:33.481670393 +0000
++++ b/su_linkhub/runtime.rb	2026-10-14 06:50:29.995913092 +0000
+@@ -40718,7 +40718,9 @@
+       begin
+         timestamp = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+         stored_bounds = soft_definition_bounds_values(wrapper)
+-        stored_actual_axis_mm = soft_definition_axis_extents(wrapper).map { |value| (value.to_f.abs * 25.4).round(4) }
++        # v0.13.7.12：朝向相机组件记录自身轴向尺寸，不记录转向镜头后的外包盒。
++        stored_axis_source_mm = soft_face_camera_wrapper_axis_mm(wrapper) || soft_definition_axis_extents(wrapper).map { |value| value.to_f.abs * 25.4 }
++        stored_actual_axis_mm = stored_axis_source_mm.map { |value| value.to_f.abs.round(4) }
+         metadata = default_soft_model_metadata(target).merge(
+           'model_id' => model_id,
+           'name' => model_name,
+@@ -40905,7 +40907,9 @@
+       begin
+         timestamp = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+         stored_bounds = soft_definition_bounds_values(wrapper)
+-        stored_actual_axis_mm = soft_definition_axis_extents(wrapper).map { |value| (value.to_f.abs * 25.4).round(4) }
++        # v0.13.7.12：朝向相机组件记录自身轴向尺寸，不记录转向镜头后的外包盒。
++        stored_axis_source_mm = soft_face_camera_wrapper_axis_mm(wrapper) || soft_definition_axis_extents(wrapper).map { |value| value.to_f.abs * 25.4 }
++        stored_actual_axis_mm = stored_axis_source_mm.map { |value| value.to_f.abs.round(4) }
+         metadata = default_soft_model_metadata(target).merge(
+           'model_id' => model_id,
+           'name' => model_name,
+@@ -41133,7 +41137,7 @@
+         face_camera_written = soft_definition_face_camera?(wrapper)
+         soft_clear_definition_bounds_cache!(wrapper)
+         written_bounds = soft_definition_bounds_values(wrapper)
+-        written_axis_mm = soft_definition_axis_extents(wrapper).map { |value| value.to_f.abs * 25.4 }
++        written_axis_mm = soft_face_camera_wrapper_axis_mm(wrapper) || soft_definition_axis_extents(wrapper).map { |value| value.to_f.abs * 25.4 }
+         soft_set_attribute_if_changed(wrapper, SOFT_MODEL_DICT, 'model_id', item['id'].to_s)
+         soft_set_attribute_if_changed(wrapper, SOFT_MODEL_DICT, 'source_path', FastPath.expand(path))
+         soft_set_attribute_if_changed(wrapper, SOFT_MODEL_DICT, 'model_name', item['name'].to_s)
+@@ -42217,6 +42221,9 @@
+         Array(job[:success_names]).map(&:to_s), limit: 4
+       )
+       failed_names = soft_furniture_name_summary(Array(job[:errors]).map { |entry| entry[:name].to_s }, limit: 3)
++      # v0.13.7.12：悬浮提示直接带上第一条失败原因，用户不必再去翻日志。
++      first_failure_reason = Array(job[:errors]).map { |entry| entry[:message].to_s.strip }.find { |text| !text.empty? }.to_s
++      failed_names += "（原因：#{first_failure_reason[0, 80]}）" unless first_failure_reason.empty?
+       show_workspace_floating_notice(
+         task_success ? (seeds.empty? ? "家具入库完成 · #{success_names}" : "源模型已入库 · 代理待完成：#{success_names}") : "家具入库完成 · 成功 #{job[:success]} · 失败：#{failed_names}",
+         task_success ? 'success' : 'warning', duration: 5.0, model: model
+@@ -42776,11 +42783,14 @@
+       values = soft_fresh_definition_bounds_values(instance.definition)
+       raise '家具当前真实几何外包盒无效。' unless values && values.length == 6
+       x0, y0, z0, x1, y1, z1 = values.map(&:to_f)
+-      origin = Geom::Point3d.new(x0, y0, z0).transform(transform)
+-      x_end = Geom::Point3d.new(x1, y0, z0).transform(transform)
+-      y_end = Geom::Point3d.new(x0, y1, z0).transform(transform)
+-      z_end = Geom::Point3d.new(x0, y0, z1).transform(transform)
+-      [origin.distance(x_end), origin.distance(y_end), origin.distance(z_end)].map { |value| value.to_f.abs * 25.4 }
++      # v0.13.7.12：尺寸只与变换的线性部分有关。旧版用两个世界坐标点相减求距离，
++      # 家具离原点很远时，厚度只有 1e-12 英寸级的片状组件会被浮点抵消成 0 或噪声。
++      # 改为直接变换轴向量（不含平移），普通家具结果不变。
++      [
++        Geom::Vector3d.new(x1 - x0, 0, 0),
++        Geom::Vector3d.new(0, y1 - y0, 0),
++        Geom::Vector3d.new(0, 0, z1 - z0)
++      ].map { |vector| vector.transform(transform).length.to_f.abs * 25.4 }
+     rescue StandardError => e
+       log_exception('计算家具入库当前真实尺寸失败', e)
+       raise
+@@ -42991,9 +43001,38 @@
+       horizontal < Math.hypot(w, t) - tolerance || horizontal > (w + t) + tolerance
+     end
+ 
++    # v0.13.7.12：朝向相机包装组件的“组件自身轴向”尺寸（mm）：子组件定义外包尺寸 × 子实例各轴缩放长度。
++    # 子实例被 SketchUp 绕 Z 转向镜头时，轴向量长度不变，所以结果与镜头无关。
++    # 不是“包装 + 朝向相机子组件”结构时返回 nil。
++    def soft_face_camera_wrapper_axis_mm(definition, depth = 0)
++      return nil unless definition && definition.valid?
++      behavior = definition.behavior rescue nil
++      if behavior && behavior.respond_to?(:always_face_camera?) && behavior.always_face_camera?
++        return soft_fresh_definition_axis_extents(definition).map { |value| value.to_f.abs * 25.4 }
++      end
++      return nil if depth >= 4
++      children = definition.entities.to_a.select { |entity| entity && entity.valid? }
++      instances = children.select { |entity| entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group) }
++      return nil unless instances.length == 1 && children.none? { |entity| entity.is_a?(Sketchup::Face) }
++      child = instances.first
++      inner = soft_face_camera_wrapper_axis_mm(child.definition, depth + 1)
++      return nil unless inner
++      basis = soft_transform_basis_vectors(child.transformation)
++      inner.each_with_index.map { |value, index| value.to_f * soft_vector_length(basis[index]).to_f }
++    rescue StandardError => e
++      log_exception('读取朝向相机组件轴向尺寸失败', e)
++      nil
++    end
++
+     def build_soft_library_update_definition!(entity, library_item, model = Sketchup.active_model, normalize_axes: true, preserve_instance_reflection: true, expected_axis_mm: nil)
+       expected_mm = Array(expected_axis_mm).map(&:to_f)
+-      expected_mm = soft_library_actual_axis_dimensions_mm(entity, model) unless expected_mm.length == 3 && expected_mm.all? { |value| value.finite? && value > 1.0e-6 }
++      # v0.13.7.12：片状组件有一根轴为 0。旧条件要求三轴都 > 1e-6mm，片状组件在空间内捕获的尺寸
++      # 总被丢弃，退出空间后在根层重新测量（此时不含所属空间的变换）。现在只要求三轴有限、非负，
++      # 且至少两根轴有效。
++      expected_valid = expected_mm.length == 3 &&
++                       expected_mm.all? { |value| value.finite? && value >= 0.0 } &&
++                       expected_mm.count { |value| value > 1.0e-6 } >= 2
++      expected_mm = soft_library_actual_axis_dimensions_mm(entity, model) unless expected_valid
+       wrapper = model.definitions.add(model.definitions.unique_name("LH_软装库更新_#{library_item['name']}"))
+       wrapper.set_attribute(SOFT_MODEL_DICT, 'library_update_package', 1)
+       payload = wrapper.entities.add_instance(
+@@ -43087,6 +43126,12 @@
+       end
+       face_camera_result = face_camera_source || soft_definition_face_camera?(wrapper)
+       soft_set_attribute_if_changed(wrapper, SOFT_MODEL_DICT, 'face_camera', true) if face_camera_result
++      if face_camera_result
++        # v0.13.7.12：包装里的朝向相机子组件可能已被 SketchUp 转向镜头，包装外包盒随之变化。
++        # 库尺寸记录组件自身轴向尺寸（与旋转无关），不记录转动后的外包盒。
++        canonical_mm = soft_face_camera_wrapper_axis_mm(wrapper)
++        actual_mm = canonical_mm if canonical_mm
++      end
+       planar_reference = mark_soft_planar_reference!(wrapper, face_camera_result ? true : nil)
+       soft_set_attribute_if_changed(wrapper, SOFT_MODEL_DICT, 'library_payload_transform_schema', 1)
+       soft_set_attribute_if_changed(wrapper, SOFT_MODEL_DICT, 'library_payload_transform_json', JSON.generate(payload_transform_for_compensation.to_a.map(&:to_f)))
+diff -ruN a/su_linkhub.rb b/su_linkhub.rb
+--- a/su_linkhub.rb	2026-10-14 06:07:33.482877025 +0000
++++ b/su_linkhub.rb	2026-10-14 06:50:52.765011475 +0000
+@@ -8,7 +8,7 @@
+   # 会导致常量和启动方法互相覆盖，并把 runtime.rb 错指到其他插件目录。
+   module SULinkHubMultiSpace
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.11' unless const_defined?(:EXTENSION_VERSION, false)
++    EXTENSION_VERSION = '0.13.7.12' unless const_defined?(:EXTENSION_VERSION, false)
+ 
+     unless file_loaded?(__FILE__)
+       extension = SketchupExtension.new(EXTENSION_NAME, 'su_linkhub/main')
