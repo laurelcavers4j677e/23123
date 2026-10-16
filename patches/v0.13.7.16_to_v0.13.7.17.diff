@@ -1,0 +1,157 @@
+diff -ruN a/CHANGELOG_v0.13.7.17.txt b/CHANGELOG_v0.13.7.17.txt
+--- a/CHANGELOG_v0.13.7.17.txt	1970-01-01 00:00:00.000000000 +0000
++++ b/CHANGELOG_v0.13.7.17.txt	2026-10-16 10:02:03.871664017 +0000
+@@ -0,0 +1,18 @@
++SU LinkHub v0.13.7.17
++
++在 v0.13.7.16 基础上：修复采购清单里填写的内容在 Excel 总表中缺漏。
++
++原因：
++- 清单“分类资料”里填写的框架材质、饰面/面料、色号/色系、工艺特殊要求、品牌/供应商等，
++  只导出到对应的分类表（家具、灯具……）。
++- “总表”和“按款汇总”的“材质描述”列只导出“材质描述”这一个字段，没有分类资料，也没有品牌/供应商列。
++  所以在总表里看，像“木箱子”的“黑色做旧”“淘老货”都是空的。
++
++修复：
++- 总表、按款汇总的“材质描述”列：先写材质描述原文，再按该行大类的字段顺序列出已填写的分类资料，
++  格式为“色号/色系：黑色做旧；工艺特殊要求：……”。改过大类的行，旧大类里填的资料也会列出。
++- 总表、按款汇总新增“品牌/供应商”列（在“合价”之后）。
++- 未提交的清单草稿照常用于本次导出（与旧版相同），不会提交或修改模型。
++- 分类表（家具、灯具等）不变，原本就逐列导出全部分类资料。
++
++其余同 v0.13.7.16（见 CHANGELOG_v0.13.7.16.txt）。
+diff -ruN a/su_linkhub/README.txt b/su_linkhub/README.txt
+--- a/su_linkhub/README.txt	2026-10-16 06:49:30.016625793 +0000
++++ b/su_linkhub/README.txt	2026-10-16 10:02:03.869411734 +0000
+@@ -1,6 +1,6 @@
+-SU LinkHub v0.13.7.16
++SU LinkHub v0.13.7.17
+ 
+-本版新增（详见 CHANGELOG_v0.13.7.16.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
++本版新增（详见 CHANGELOG_v0.13.7.17.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
+ - 浅色家具缩略图：米白/浅灰材质（如罗马帘、纱帘）入库或刷新后不再变成白图；缩略图带细轮廓线。
+ - 缩略图刷新：严格检测模型主体；白图不会覆盖旧图或误报成功，并关闭项目剖切影响。
+ - 家具选择：自动清理旧版遗留的受管家具锁定，家具保持可选择；单件编辑继续安全隔离。
+@@ -17,7 +17,7 @@
+ - 发布/入库不再因个别家具缺代理而整单失败：缺代理家具以真模型随包发布，代理后台补齐。
+ - 来源同步不再把正在调整的联动副本弹回；发布前复核协同组件签名，避免“显示最新但内容旧”。
+ 
+-日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.16.log
++日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.17.log
+ 诊断输出：%TEMP%\SU_LinkHub\diagnostics\
+ 
+ ----------------------------------------------------------------
+diff -ruN a/su_linkhub/constants.rb b/su_linkhub/constants.rb
+--- a/su_linkhub/constants.rb	2026-10-16 06:49:30.016390118 +0000
++++ b/su_linkhub/constants.rb	2026-10-16 10:02:03.869178501 +0000
+@@ -4,7 +4,7 @@
+   module SULinkHubMultiSpace
+     module Runtime
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.16'.freeze
++    EXTENSION_VERSION = '0.13.7.17'.freeze
+     # 从这一版开始，空间编辑域进一步收口：整个 SKP 根层级不能作为空间修改容器，
+     # 空间内部原生锁定会被自动撤销；同时继承 13.5.5 的软装落位、冲突阻止和安全快照。
+     # 因此低于 0.13.6.18 的协作者仍可能绕过“编辑前必须最新”和强制恢复隔离规则，当前版本会明确提示团队统一升级。
+@@ -31,16 +31,16 @@
+     rescue StandardError
+       nil
+     end
+-    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.16.log').freeze
+-    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.16.log').freeze
+-    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.16.log').freeze
++    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.17.log').freeze
++    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.17.log').freeze
++    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.17.log').freeze
+     BACKGROUND_PUBLISH_QUEUE_PATH = File.join(TEMP_STATE_DIR, 'SU_LinkHub_后台发布队列_v0.13.6.100.json').freeze
+     BACKGROUND_PUBLISH_HISTORY_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布历史.jsonl').freeze
+     BACKGROUND_PUBLISH_LAST_STAGE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布最后阶段.txt').freeze
+-    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.16.log').freeze
++    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.17.log').freeze
+     SPACE_PUBLISH_QUEUE_POLL_INTERVAL = 0.12
+     SPACE_PUBLISH_QUEUE_MAX_HISTORY = 12
+-    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.16.log').freeze
++    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.17.log').freeze
+     TASK_CENTER_MAX_HISTORY = 18
+     # Ruby 后台线程只处理不触碰 SketchUp 模型/视图 API 的文件任务。两个 worker
+     # 可以让目录扫描、缓存落盘与 Excel 导出互不阻塞，同时避免机械盘/NAS 上过多
+diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
+--- a/su_linkhub/main.rb	2026-10-16 06:49:30.017806909 +0000
++++ b/su_linkhub/main.rb	2026-10-16 10:02:03.870641339 +0000
+@@ -25,6 +25,7 @@
+       const_defined?(:Runtime, false) ? const_get(:Runtime, false) : nil
+     end
+ 
++    # v0.13.7.17：Excel 总表/按款汇总的“材质描述”汇总清单中填写的全部分类资料，并新增“品牌/供应商”列。
+     # v0.13.7.16：工具条按钮组默认展开；空间组默认展开；隐藏卡片变灰；待载入联动空间橙色并常显示载入按钮；提醒类按钮常显示；清单空间标签按楼层上色；联动空间命名后自动归组并按名称排序。
+     # v0.13.7.15：家具更新统一任务（源模型 → 6 张六面 → 2 张轴测，一条总进度）；立即/稍后更新结果一致；缩略图按源签名判新；改轴漏检补测；队列/定时器/协作锁/操作回滚可靠性修复；结构审计提速。
+     # v0.13.7.14：软装模型库“请先点击修改”报错改为写明具体原因；空间根组件消失时立即警告并提示撤销；记录撤销/重做日志。
+diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
+--- a/su_linkhub/runtime.rb	2026-10-16 06:47:19.848788711 +0000
++++ b/su_linkhub/runtime.rb	2026-10-16 10:01:05.399297351 +0000
+@@ -34897,15 +34897,51 @@
+       [title, headers, body, soft_schedule_export_row_groups(list)]
+     end
+ 
++    # 总表“材质描述”：先写材质描述原文，再按该行大类的模板顺序列出已填写的分类资料（“字段：值”，用“；”分隔）。
++    # 品牌/供应商有单独一列，这里不重复。
++    def soft_schedule_summary_material_text(row)
++      parts = []
++      description = row['material_description'].to_s.strip
++      parts << description unless description.empty?
++      extras = row['extra_fields'].is_a?(Hash) ? row['extra_fields'] : {}
++      top = soft_library_canonical_top_category(row['category'])
++      fields = Array((soft_schedule_template_fields rescue {})[top])
++      seen = {}
++      fields.each do |field|
++        key = field['key'].to_s
++        next if key.empty? || key == 'brand_supplier'
++        seen[key] = true
++        value = key == 'seat_height' ? soft_schedule_seat_height_value(row).to_s : extras[key].to_s
++        value = value.strip
++        next if value.empty? || value == description
++        parts << "#{field['label']}：#{value}"
++      end
++      # 大类改过之后，旧大类里填的资料也不能丢。
++      extras.each do |key, value|
++        next if seen[key.to_s] || key.to_s == 'brand_supplier'
++        text = value.to_s.strip
++        next if text.empty? || text == description
++        label = (soft_schedule_template_fields rescue {}).values.flatten.find { |field| field['key'].to_s == key.to_s }
++        parts << "#{label ? label['label'] : key}：#{text}"
++      end
++      parts.join('；')
++    rescue StandardError
++      row['material_description'].to_s
++    end
++
+     def soft_schedule_summary_table(rows, project_name: '', title_override: nil)
+       list = soft_schedule_export_sort_rows(Array(rows))
+       title = project_name.to_s.strip.empty? ? '软装总采购清单' : "软装总采购清单（#{project_name}）"
+       title = title_override.to_s unless title_override.to_s.empty?
+-      headers = ['序号', '空间区域', '大类', '子类', '产品名称', '产品图', '数量', '规格(L×W×H mm)', '材质描述', '单价(元)', '合价(元)', '备注']
++      # v0.13.7.17：总表/按款汇总旧版“材质描述”只导出 material_description，清单里填的分类资料
++      # （框架材质、饰面/面料、色号/色系、工艺、品牌/供应商等）只出现在分类表，总表看起来缺漏。
++      # 现在“材质描述”汇总全部分类资料（带字段名），并单独增加“品牌/供应商”列。
++      headers = ['序号', '空间区域', '大类', '子类', '产品名称', '产品图', '数量', '规格(L×W×H mm)', '材质描述', '单价(元)', '合价(元)', '品牌/供应商', '备注']
+       body = list.each_with_index.map do |row, index|
+         c = soft_schedule_export_common(row)
+         [index + 1, c[:space], soft_library_canonical_top_category(row['category']), c[:subcategory], c[:name], c[:image],
+-         c[:quantity], soft_schedule_dimension_text(row), row['material_description'].to_s, c[:price], c[:total], c[:remark]]
++         c[:quantity], soft_schedule_dimension_text(row), soft_schedule_summary_material_text(row), c[:price], c[:total],
++         soft_schedule_export_extra(row, 'brand_supplier'), c[:remark]]
+       end
+       soft_schedule_append_supplemental_photo_columns!(headers, body, list)
+       [title, headers, body, soft_schedule_export_row_groups(list)]
+diff -ruN a/su_linkhub.rb b/su_linkhub.rb
+--- a/su_linkhub.rb	2026-10-16 06:49:30.016579407 +0000
++++ b/su_linkhub.rb	2026-10-16 10:02:03.869364389 +0000
+@@ -8,7 +8,7 @@
+   # 会导致常量和启动方法互相覆盖，并把 runtime.rb 错指到其他插件目录。
+   module SULinkHubMultiSpace
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.16' unless const_defined?(:EXTENSION_VERSION, false)
++    EXTENSION_VERSION = '0.13.7.17' unless const_defined?(:EXTENSION_VERSION, false)
+ 
+     unless file_loaded?(__FILE__)
+       extension = SketchupExtension.new(EXTENSION_NAME, 'su_linkhub/main')

@@ -1,0 +1,1133 @@
+diff -ruN a/CHANGELOG_v0.13.7.15.txt b/CHANGELOG_v0.13.7.15.txt
+--- a/CHANGELOG_v0.13.7.15.txt	1970-01-01 00:00:00.000000000 +0000
++++ b/CHANGELOG_v0.13.7.15.txt	2026-10-16 06:17:50.107548886 +0000
+@@ -0,0 +1,51 @@
++SU LinkHub v0.13.7.15
++
++在 v0.13.7.14 基础上：全面检查后的稳定版（家具更新流程统一、可靠性修复、提速）。
++
++一、家具编辑后的更新：8 张图一个任务，一条总进度
++- 退出家具编辑后选“是”（立即更新）或“否”（退出空间后更新），现在做的事情完全相同，只是时间不同：
++  源模型写入 → 6 张六面代理视图 → 2 张轴测缩略图（a/b）→ 完成。
++- 任务中心和视口提示只显示一个“家具更新 · 名称”任务，进度按 8 张图计算：
++  六面阶段 0–75%（视图 1/8…6/8），轴测阶段 75–100%（视图 7/8、8/8）。
++  旧版只显示六面代理进度，六面完成就显示 100%，轴测图要等 SketchUp 空闲后才另外生成，没有进度。
++- 六面代理完成后立即接着生成两张轴测图（选“是”时在空间内直接生成，不必退出空间）。
++- 入库/更新后自动排队的轴测图，如果同款六面代理还没完成，会等代理完成后一起生成，不再提前用旧状态拍一遍。
++- “是”和“否”的六面代理使用同一分辨率（旧版“否”用低分辨率，两种选择结果不同）。
++- 修复：写库后模型被归并到规范 model_id 时，“是”找不到待更新任务，静默变成“退出空间后更新”。
++- 修复：同款家具在代理生成过程中又被修改（例如再次改轴），旧版只把实例合并进正在生成的旧版本任务，
++  新版本永远不会单独重建。现在比较源模型签名，不同就在当前任务后按最新源模型再重建一次。
++- 修复：进入家具后 0.18 秒内的操作会被忽略（为吸收 SketchUp 补发的进入事务）。很快完成的改轴/移动
++  可能被当成“未修改”，不写库也不更新代理。退出时再比较一次轻量指纹（实体数量、外包盒、子组件变换、
++  组件轴），不同就按已修改处理。
++- 修复：轴测缩略图是否最新改为按“生成时的源 SKP 签名”判断（视图旁的 .src 文件）。旧版只比较修改时间，
++  NAS 时间精度粗时，改了轴/几何后的旧缩略图会被当成最新，清单和模型库继续显示旧图。
++  本机每次写库还会把该模型的轴测视图标记为过期，并递增源模型版本号；即使新旧 SKP 的修改时间和大小完全相同，
++  旧缩略图也不会被当成最新，生成中再次修改也能被识别。
++- 插件热重载后，已进入轴测阶段的“家具更新”任务明确结束（说明轴测转入后台补齐），不会停在 75–88%。
++- 轴测阶段没能排进队列时（例如定时器创建失败），任务显示“轴测缩略图未启动”，不再报“全部完成”。
++
++二、可靠性
++- 读取空间协作锁失败（NAS 超时、锁文件损坏）时，旧版当作“没有锁”，清单改尺寸可能改到别人正在修改的空间。
++  现在跳过该空间并写明“协作锁读取失败”；软装模型库报错也会写明这一原因。
++- 六面代理队列、家具入库队列、一致性更新、缩略图队列：定时器没建起来时立即结束并报错，
++  不再留下“显示进行中但没人处理”的任务和永久的忙碌标记。
++- 一致性更新、协同组件批量更新：所属模型被关闭或切换后，旧版每 0.35 秒无限重试并挡住其它更新；
++  现在 30 秒后结束任务并说明原因。
++- 统一更新任务的轴测阶段若 5 分钟内一直等不到安全截图时机，结束任务并说明原因，轴测图留在队列里空闲时补齐。
++- 清单改尺寸、软装替换：只回滚自己开启的 SketchUp 操作，不再误回滚其它命令正在进行的操作。
++- 片状（零厚度）卡片与普通模型互相替换时，不再产生接近 0 的缩放（看不见、无法操作的模型）；
++  与入库同一规则：零厚度轴按另外两轴比例的平均值处理。
++- 六面代理拟合遇到零厚度轴时明确报错，不再生成 0 缩放的代理。
++- 清单改尺寸的锚点改用与尺寸相同的“有效几何外包盒”，组件里有远处辅助点时家具不再跳位。
++
++三、速度
++- 编辑时的结构审计（现场日志每次约 1.4 秒、频繁出现）先比较廉价的根层签名，根层没有变化就跳过。
++  根层增删、炸开、成组、锁定、定义替换、空间外壳内容变化、修改会话变化仍会触发完整审计。
++- 撤销/重做后的整页界面刷新改为 0.35 秒合并一次（旧版 0.03 秒，连续撤销时反复整页刷新）。
++- 主面板的空间文件状态 3 秒内不重复访问 NAS。
++
++已知限制：
++- 一次切换整个空间的代/真（例如 219 个实例、65 个源文件）仍在 SketchUp 主线程载入模型，速度受 SketchUp
++  单线程限制。真正的根本提速需要独立的后台进程预先把 NAS 上的源模型同步到本地，这需要单独设计。
++
++其余同 v0.13.7.14（见 CHANGELOG_v0.13.7.14.txt）。
+diff -ruN a/su_linkhub/README.txt b/su_linkhub/README.txt
+--- a/su_linkhub/README.txt	2026-10-14 09:37:21.000000000 +0000
++++ b/su_linkhub/README.txt	2026-10-16 06:12:27.692413824 +0000
+@@ -1,6 +1,6 @@
+-SU LinkHub v0.13.7.14
++SU LinkHub v0.13.7.15
+ 
+-本版新增（详见 CHANGELOG_v0.13.7.14.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
++本版新增（详见 CHANGELOG_v0.13.7.15.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
+ - 浅色家具缩略图：米白/浅灰材质（如罗马帘、纱帘）入库或刷新后不再变成白图；缩略图带细轮廓线。
+ - 缩略图刷新：严格检测模型主体；白图不会覆盖旧图或误报成功，并关闭项目剖切影响。
+ - 家具选择：自动清理旧版遗留的受管家具锁定，家具保持可选择；单件编辑继续安全隔离。
+@@ -17,7 +17,7 @@
+ - 发布/入库不再因个别家具缺代理而整单失败：缺代理家具以真模型随包发布，代理后台补齐。
+ - 来源同步不再把正在调整的联动副本弹回；发布前复核协同组件签名，避免“显示最新但内容旧”。
+ 
+-日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.14.log
++日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.15.log
+ 诊断输出：%TEMP%\SU_LinkHub\diagnostics\
+ 
+ ----------------------------------------------------------------
+diff -ruN a/su_linkhub/constants.rb b/su_linkhub/constants.rb
+--- a/su_linkhub/constants.rb	2026-10-14 09:37:21.000000000 +0000
++++ b/su_linkhub/constants.rb	2026-10-16 06:12:27.692187202 +0000
+@@ -4,7 +4,7 @@
+   module SULinkHubMultiSpace
+     module Runtime
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.14'.freeze
++    EXTENSION_VERSION = '0.13.7.15'.freeze
+     # 从这一版开始，空间编辑域进一步收口：整个 SKP 根层级不能作为空间修改容器，
+     # 空间内部原生锁定会被自动撤销；同时继承 13.5.5 的软装落位、冲突阻止和安全快照。
+     # 因此低于 0.13.6.18 的协作者仍可能绕过“编辑前必须最新”和强制恢复隔离规则，当前版本会明确提示团队统一升级。
+@@ -31,16 +31,16 @@
+     rescue StandardError
+       nil
+     end
+-    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.14.log').freeze
+-    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.14.log').freeze
+-    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.14.log').freeze
++    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.15.log').freeze
++    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.15.log').freeze
++    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.15.log').freeze
+     BACKGROUND_PUBLISH_QUEUE_PATH = File.join(TEMP_STATE_DIR, 'SU_LinkHub_后台发布队列_v0.13.6.100.json').freeze
+     BACKGROUND_PUBLISH_HISTORY_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布历史.jsonl').freeze
+     BACKGROUND_PUBLISH_LAST_STAGE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布最后阶段.txt').freeze
+-    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.14.log').freeze
++    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.15.log').freeze
+     SPACE_PUBLISH_QUEUE_POLL_INTERVAL = 0.12
+     SPACE_PUBLISH_QUEUE_MAX_HISTORY = 12
+-    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.14.log').freeze
++    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.15.log').freeze
+     TASK_CENTER_MAX_HISTORY = 18
+     # Ruby 后台线程只处理不触碰 SketchUp 模型/视图 API 的文件任务。两个 worker
+     # 可以让目录扫描、缓存落盘与 Excel 导出互不阻塞，同时避免机械盘/NAS 上过多
+diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
+--- a/su_linkhub/main.rb	2026-10-14 09:37:21.000000000 +0000
++++ b/su_linkhub/main.rb	2026-10-16 06:12:27.693548434 +0000
+@@ -25,6 +25,7 @@
+       const_defined?(:Runtime, false) ? const_get(:Runtime, false) : nil
+     end
+ 
++    # v0.13.7.15：家具更新统一任务（源模型 → 6 张六面 → 2 张轴测，一条总进度）；立即/稍后更新结果一致；缩略图按源签名判新；改轴漏检补测；队列/定时器/协作锁/操作回滚可靠性修复；结构审计提速。
+     # v0.13.7.14：软装模型库“请先点击修改”报错改为写明具体原因；空间根组件消失时立即警告并提示撤销；记录撤销/重做日志。
+     # v0.13.7.13：朝向相机组件入库尺寸复核与测量改用组件自身轴向尺寸，不再使用 SketchUp 对朝向相机子组件报的外包盒（现场日志确认）。
+     # v0.13.7.12：朝向相机卡片入库尺寸改按轴向量测量、空间内捕获尺寸不再丢弃、库尺寸记录组件自身轴向尺寸、失败提示带原因。
+diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
+--- a/su_linkhub/proxy_queue.rb	2026-10-14 09:36:39.000000000 +0000
++++ b/su_linkhub/proxy_queue.rb	2026-10-16 06:19:57.946057919 +0000
+@@ -216,6 +216,16 @@
+       ''
+     end
+ 
++    # v0.13.7.15：家具更新统一任务 = 6 张六面代理视图 + 2 张轴测缩略图，共 8 张，一个任务一条总进度。
++    def start_soft_furniture_update_task!(label, stage: '已加入队列 · 0/8', detail: '', status: 'queued')
++      task_id = start_task_center_job!(
++        'visual_proxy', label: "家具更新 · #{label}", stage: stage, progress: 2,
++        detail: detail.to_s, status: status
++      )
++      set_task_center_progress_scale!(task_id, 0.75) unless task_id.to_s.empty?
++      task_id.to_s
++    end
++
+     def ensure_soft_visual_proxy_seed_task!(seed, model = Sketchup.active_model, detail: '')
+       return '' unless seed.is_a?(Hash)
+       current = seed[:proxy_task_id].to_s
+@@ -247,10 +257,7 @@
+               end
+       queue_detail = detail.to_s.strip
+       queue_detail = "已加入六面代理队列 · 当前排队位置约 #{ahead + 1}" if queue_detail.empty?
+-      task_id = start_task_center_job!(
+-        'visual_proxy', label: "六面代理 · #{label}", stage: '已加入队列', progress: 2,
+-        detail: queue_detail, status: 'queued'
+-      )
++      task_id = start_soft_furniture_update_task!(label, stage: '已加入队列 · 0/8', detail: queue_detail)
+       seed[:proxy_task_id] = task_id unless task_id.to_s.empty?
+       sync_task_center_overlay_ui!(model) rescue nil
+       task_id.to_s
+@@ -434,6 +441,28 @@
+           # 如果这个 seed 就是当前正在执行的同一 task，不要因为“退出空间”再次把它排一遍；
+           # 若用户在当前生成过程中又修改了同款，新的 seed 会有不同 task_id，仍允许尾部重建一次。
+           if (active = active_by_key[key]) && active[:proxy_task_id].to_s == item[:proxy_task_id].to_s
++            # v0.13.7.15：正在生成的这一版之后，源 SKP 又被改写（同款在生成过程中再次编辑/改轴）。
++            # 旧版只把实例合并进当前任务，新版本永远不会单独重建，代理和缩略图停在旧版本。
++            # 现在比较源签名：不同就在当前任务之后按最新源模型再排一次重建。
++            active_signature = active_state.is_a?(Hash) ? active_state[:source_signature].to_s : ''
++            current_signature = item[:source_path].to_s.empty? ? '' : soft_library_file_signature(item[:source_path].to_s, force: true).to_s
++            revision_changed = active_state.is_a?(Hash) && active_state.key?(:source_revision) && !item[:source_path].to_s.empty? &&
++                               soft_library_source_revision(item[:source_path].to_s) != active_state[:source_revision].to_i
++            signature_changed = !active_signature.empty? && !current_signature.empty? && active_signature != current_signature
++            if revision_changed || signature_changed
++              rebuild = item.dup
++              rebuild[:force_rebuild] = true
++              rebuild[:reuse_existing] = false
++              rebuild[:proxy_task_id] = start_soft_furniture_update_task!(
++                (item[:model_name].to_s.empty? ? key : item[:model_name].to_s),
++                stage: '等待上一版本完成 · 0/8', detail: '同款在生成过程中又被修改；当前版本完成后按最新源模型重建'
++              )
++              existing[:scan_queue].unshift(rebuild)
++              pending[key] = rebuild
++              added += 1
++              log("六面代理：同款在生成中被再次修改，已在当前任务后追加最新版本重建：#{item[:model_name]}")
++              next
++            end
+             active[:replace_instances] = (Array(active[:replace_instances]) + Array(item[:replace_instances])).select { |node| node && node.valid? }.uniq
+             # v0.13.6.177：用户可能在任务已经成为 active candidate 之后才点击“代理”。
+             # 这时也要把当前 candidate/state 晋升为可在空间内继续的高优先级任务，
+@@ -501,7 +530,13 @@
+         show_status("已启动六面代理维护：#{seeds.length} 款，范围=#{scope_space_id.to_s.empty? ? '当前选择' : '当前空间'}。", 'info')
+       end
+       reconcile_soft_visual_proxy_task_center!(model, @soft_visual_proxy_upgrade_job)
+-      schedule_soft_visual_proxy_driver!(@soft_visual_proxy_upgrade_job, delay: 0.05, label: 'soft:visual_proxy_scan')
++      # v0.13.7.15：driver 定时器没建起来时立即收尾报错，不留下“显示进行中但没人处理”的任务。
++      unless schedule_soft_visual_proxy_driver!(@soft_visual_proxy_upgrade_job, delay: 0.05, label: 'soft:visual_proxy_scan')
++        failed_job = @soft_visual_proxy_upgrade_job
++        finish_soft_visual_proxy_upgrade_job(failed_job, aborted: true, abort_message: '无法启动六面代理队列定时器。') rescue nil
++        @soft_visual_proxy_upgrade_job = nil if @soft_visual_proxy_upgrade_job.equal?(failed_job)
++        return { queued: 0, total: 0, running: false, error: '无法启动六面代理队列定时器。' }
++      end
+       { queued: 0, total: seeds.length, running: true, scanning: true }
+     rescue StandardError => e
+       log_exception('启动六面代理升级失败', e)
+@@ -742,11 +777,14 @@
+         candidate: candidate, source_definition: source_definition, bounds_values: values,
+         model_id: model_id, model_name: model_name, metadata: metadata,
+         source_path: source_path, source_signature: source_signature, target: target,
++        source_revision: soft_library_source_revision(source_path),
+         plans: soft_visual_proxy_incremental_plans(
+           values, cache_dir,
+           # v0.13.7.4：自动任务一律 128px（像素量约为 192px 的 44%，截图与抠图都更快）；
+           # 只有用户在退出确认里明确选“立即更新”的单款任务保留 192px。
+-          max_px: ((candidate[:priority] == true && job[:scan_total].to_i <= 1 && job[:total].to_i <= 1) ? SOFT_VISUAL_PROXY_RESOLUTION : SOFT_VISUAL_PROXY_BATCH_RESOLUTION)
++          # v0.13.7.15：家具编辑后的更新（立即更新或退出空间后更新）一律用同一分辨率，
++          # 两种选择得到完全相同的代理；其它自动维护任务仍用批量分辨率。
++          max_px: ((candidate[:priority] == true || candidate[:force_rebuild] == true) ? SOFT_VISUAL_PROXY_RESOLUTION : SOFT_VISUAL_PROXY_BATCH_RESOLUTION)
+         ), images: {},
+         view_index: 0, phase: :capture,
+         allow_inside_space: candidate[:allow_inside_space] == true,
+@@ -1060,9 +1098,12 @@
+       total = job.is_a?(Hash) ? [job[:scan_total].to_i, job[:total].to_i, 1].max : 1
+       done = job.is_a?(Hash) ? job[:done].to_i : 0
+       current_index = [[done + 1, 1].max, total].min
+-      aggregate = ((done.to_f + [[progress.to_f, 0.0].max, 100.0].min / 100.0) / total.to_f * 100.0)
++      # v0.13.7.15：六面阶段只占每款家具总进度的 75%（6/8），其余 25% 是两张轴测缩略图。
++      aggregate = ((done.to_f + [[progress.to_f, 0.0].max, 100.0].min / 100.0 * 0.75) / total.to_f * 100.0)
+       aggregate = [[aggregate, 0.0].max, 99.0].min
+-      show_workspace_floating_notice("代理刷新中 · #{current_index}/#{total} · #{stage}", 'info', progress: aggregate, persistent: true, model: model)
++      name = state[:model_name].to_s
++      prefix = total > 1 ? "家具更新 #{current_index}/#{total}" : '家具更新'
++      show_workspace_floating_notice("#{prefix}#{name.empty? ? '' : " · #{name}"} · #{stage}", 'info', progress: aggregate, persistent: true, model: model)
+       Sketchup.set_status_text("#{stage} · #{detail}") if Sketchup.respond_to?(:set_status_text)
+       true
+     rescue StandardError
+@@ -1087,7 +1128,7 @@
+         index = state[:capture_index].to_i
+         current_plan = plans[[index, plans.length - 1].min]
+         soft_visual_proxy_incremental_progress!(
+-          state, 12 + ((index.to_f / total) * 36.0).round, "截图 #{[index + 1, total].min}/#{total}",
++          state, 12 + ((index.to_f / total) * 36.0).round, "视图 #{[index + 1, total].min}/8 · 六面",
+           "#{current_plan ? current_plan[:name] : ''} · 分片截图，视口保持可响应", model: model
+         )
+         budget = job[:foreground_exit_batch] ? SOFT_VISUAL_PROXY_CAPTURE_TICK_BUDGET_EXIT_BATCH : SOFT_VISUAL_PROXY_CAPTURE_TICK_BUDGET
+@@ -1684,8 +1725,17 @@
+         (job[:repaired_names] ||= []) << label
+       end
+       consumed_pending = complete_soft_pending_proxy_rebuilds_for_model!(candidate[:model_id].to_s, model)
+-      # v0.13.7.3：代理完成后空闲时补齐正反轴测缩略图（已是最新则直接跳过）。
+-      enqueue_soft_thumbnail_views!(candidate[:model_id].to_s, reason: '六面代理完成') rescue nil if candidate[:reuse_existing] != true
++      # v0.13.7.15：六面代理完成后立即接着生成两张轴测（同一个任务，进度 6/8 → 8/8），
++      # 不再等 SketchUp 空闲、也不提前结束任务。复用现有代理（未重建）时不需要重拍。
++      thumbnail_pipeline = false
++      if candidate[:reuse_existing] != true
++        thumbnail_pipeline = enqueue_soft_thumbnail_views!(
++          candidate[:model_id].to_s, reason: '六面代理完成', force: true,
++          pipeline_task_id: task_id.to_s, pipeline_label: label,
++          allow_inside_space: (candidate[:allow_inside_space] == true)
++        ) rescue false
++        thumbnail_pipeline = false if task_id.to_s.empty?
++      end
+       if candidate[:legacy_recovery] == true
+         remaining_legacy = Array(candidate[:replace_instances]).select do |instance|
+           instance && instance.valid? && soft_legacy_proxy_entity?(instance) &&
+@@ -1708,7 +1758,17 @@
+           # v0.13.7.4：任务队列里的总耗时包含排队和“等待退出空间”；单独标出实际生成用时。
+           detail += " · 实际生成 #{(monotonic_time - candidate[:active_started_at].to_f).round}s（其余为排队/等待空闲）"
+         end
+-        finish_task_center_job!(task_id, success: true, stage: '六面代理完成', detail: detail)
++        if thumbnail_pipeline
++          update_task_center_job!(task_id, progress: 75, stage: '六面完成 · 6/8 · 接着生成轴测', detail: detail, status: 'running', raw: true)
++          (job[:thumbnail_pipeline_names] ||= []) << label
++        elsif candidate[:reuse_existing] != true
++          # 代理已重建，但轴测阶段没能排队（例如定时器创建失败）：不能报“8 张全部完成”。
++          # 排队失败时任务仍留在缩略图队列里（见 enqueue_soft_thumbnail_views!），下次排队或重载插件时补齐。
++          enqueue_soft_thumbnail_views!(candidate[:model_id].to_s, reason: '六面代理完成（补齐）', force: true) rescue nil
++          finish_task_center_job!(task_id, success: false, stage: '六面完成 · 轴测缩略图未启动', detail: "#{detail} · 轴测缩略图已留在队列中，下次缩略图任务启动或重载插件时补齐")
++        else
++          finish_task_center_job!(task_id, success: true, stage: '六面代理完成', detail: detail)
++        end
+         sync_task_center_overlay_ui!(model) rescue nil
+       end
+       log("六面代理升级完成：#{label} / 替换当前项目实例 #{result[:replaced].to_i} / 消费待提交 #{consumed_pending}")
+@@ -1999,7 +2059,11 @@
+         if repair_job
+           show_workspace_floating_notice("已自动修复代理 · #{repaired_names}", 'success', progress: 100, duration: 3.0, model: model) unless Array(job[:repaired_names]).empty?
+         elsif job[:success].to_i.positive?
+-          show_workspace_floating_notice("代理刷新完成 · #{success_names}", 'success', progress: 100, duration: 3.0, model: model)
++          if Array(job[:thumbnail_pipeline_names]).any?
++            show_workspace_floating_notice("六面代理完成 · #{success_names} · 正在生成轴测 7/8", 'info', progress: 80, persistent: true, model: model)
++          else
++            show_workspace_floating_notice("代理刷新完成 · #{success_names}", 'success', progress: 100, duration: 3.0, model: model)
++          end
+         end
+       else
+         show_workspace_floating_notice("代理刷新完成 · 失败：#{failed_names}#{job[:success].to_i.positive? ? " · 成功：#{success_names}" : ''}", 'warning', progress: 100, duration: 4.5, model: model)
+diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
+--- a/su_linkhub/runtime.rb	2026-10-14 09:36:57.000000000 +0000
++++ b/su_linkhub/runtime.rb	2026-10-16 06:17:31.623314967 +0000
+@@ -1595,6 +1595,40 @@
+       @task_center_registry ||= {}
+     end
+ 
++    # v0.13.7.15：热重载后旧运行代的缩略图定时器全部失效。仍在队列里的轴测任务改为普通补齐任务，
++    # 已经进入轴测阶段（≥75%）的“家具更新”任务明确结束并说明原因，不会永远停在 75–88%。
++    def recover_soft_thumbnail_pipeline_after_reload!
++      @soft_thumbnail_view_timer = nil
++      queue = @soft_thumbnail_view_queue.is_a?(Array) ? @soft_thumbnail_view_queue : []
++      live_ids = {}
++      queue.each do |job|
++        next unless job.is_a?(Hash)
++        task_id = job[:pipeline_task_id].to_s
++        live_ids[task_id] = true unless task_id.empty?
++        job[:pipeline_task_id] = ''
++        job[:done] = []
++        job[:attempts] = 0
++      end
++      stranded = []
++      @task_center_mutex ||= Mutex.new
++      @task_center_mutex.synchronize do
++        (@task_center_registry || {}).each_value do |row|
++          next unless row[:kind].to_s == 'visual_proxy' && row[:progress_scale]
++          next unless %w[queued running].include?(row[:status].to_s) && row[:progress].to_i >= 75
++          stranded << row[:task_id].to_s
++        end
++      end
++      (stranded | live_ids.keys).each do |task_id|
++        finish_task_center_job!(task_id, success: false, stage: '插件已重载 · 轴测缩略图转入后台补齐',
++                                detail: '源模型与六面代理已完成；两张轴测缩略图会在空闲时自动生成')
++      end
++      ensure_soft_thumbnail_view_driver! if queue.any? && respond_to?(:ensure_soft_thumbnail_view_driver!)
++      true
++    rescue StandardError => e
++      log_exception('热重载后恢复缩略图队列失败', e)
++      false
++    end
++
+     def start_task_center_job!(kind, label:, task_id: nil, stage: '等待开始', progress: 0, detail: '', status: 'queued')
+       @task_center_mutex ||= Mutex.new
+       @task_center_registry ||= {}
+@@ -1627,7 +1661,23 @@
+       ''
+     end
+ 
+-    def update_task_center_job!(task_id, progress: nil, stage: nil, detail: nil, status: nil)
++    # v0.13.7.15：progress_scale 用于“家具更新”统一任务：六面代理阶段内部仍按 0–100 汇报，
++    # 这里换算成总进度的 0–75%（6/8），轴测 a/b 阶段用 raw: true 直接写 75–100%。
++    def set_task_center_progress_scale!(task_id, scale)
++      id = task_id.to_s
++      return false if id.empty?
++      @task_center_mutex ||= Mutex.new
++      @task_center_registry ||= {}
++      @task_center_mutex.synchronize do
++        job = @task_center_registry[id]
++        job[:progress_scale] = scale.to_f if job
++      end
++      true
++    rescue StandardError
++      false
++    end
++
++    def update_task_center_job!(task_id, progress: nil, stage: nil, detail: nil, status: nil, raw: false)
+       id = task_id.to_s
+       return false if id.empty?
+       @task_center_mutex ||= Mutex.new
+@@ -1641,7 +1691,15 @@
+         old_progress = job[:progress].to_i
+         old_stage = job[:stage_label].to_s
+         old_status = job[:status].to_s
+-        job[:progress] = [[progress.to_i, 0].max, 100].min unless progress.nil?
++        unless progress.nil?
++          scaled = progress.to_f
++          if !raw && job[:progress_scale] && !%w[completed failed cancelled].include?(status.to_s)
++            scaled *= job[:progress_scale].to_f
++          end
++          # 统一任务的进度只前进不后退（不同阶段各自的百分比换算后可能回落）。
++          scaled = [scaled, job[:progress].to_f].max if job[:progress_scale] && !%w[completed failed cancelled].include?(status.to_s)
++          job[:progress] = [[scaled.round, 0].max, 100].min
++        end
+         unless stage.nil?
+           job[:stage] = stage.to_s
+           job[:stage_label] = stage.to_s
+@@ -4048,12 +4106,49 @@
+       ''
+     end
+ 
++    # 只读、不递归：被编辑组件定义的实体数量、本地外包盒、直接子组件变换，以及实例自身变换
++    # （改组件轴时 SketchUp 会同时改实例变换和内部实体位置）。
++    def soft_individual_edit_quick_fingerprint(entity)
++      return '' unless entity && entity.valid? && entity.respond_to?(:definition)
++      definition = entity.definition
++      round = ->(values) { Array(values).map { |value| value.to_f.round(6) } }
++      bounds = definition.bounds
++      children = []
++      definition.entities.each do |child|
++        next unless child.is_a?(Sketchup::ComponentInstance) || child.is_a?(Sketchup::Group)
++        children << [child.definition.object_id, round.call(child.transformation.to_a)]
++        break if children.length >= 400
++      end
++      payload = [
++        definition.entities.length,
++        round.call(bounds.min.to_a + bounds.max.to_a),
++        children,
++        round.call(entity.transformation.to_a)
++      ]
++      Digest::SHA1.hexdigest(Marshal.dump(payload))
++    rescue StandardError
++      ''
++    end
++
+     def soft_individual_edit_content_unchanged?(record)
+       return false unless record.is_a?(Hash)
+       # v0.13.6.109：新会话由 ModelObserver 记录编辑期间是否发生过事务。
+       # 退出时只读一个布尔值，避免再次递归扫描数十万条边、面、材质和 UV。
+       if record[:change_tracking].to_s == 'transaction'
+-        return record[:content_changed] != true
++        return false if record[:content_changed] == true
++        # v0.13.7.15：进入后 0.18 秒内的事务会被忽略（吸收 SketchUp 补发的入口事务）。
++        # 很快完成的改轴/移动可能正好落在这段时间里，导致“修改了却按未修改处理”，不写库也不更新代理。
++        # 退出时再比较一次轻量指纹（实体数量、外包盒、子组件变换、组件轴），不同就按已修改处理。
++        before = record[:quick_fingerprint_before].to_s
++        unless before.empty?
++          after = soft_individual_edit_quick_fingerprint(record[:entity])
++          if !after.empty? && after != before
++            log("家具编辑退出：事务监听未记录修改，但几何/轴指纹已变化，按已修改处理：#{record[:model_name]}")
++            record[:content_changed] = true
++            return false
++          end
++        end
++        return true
+       end
+ 
+       # 兼容热加载升级前已经建立的旧会话；旧会话没有事务标记，只能沿用内容签名。
+@@ -5453,9 +5548,11 @@
+         immediate ? "正在保存并更新代理 · #{record[:model_name]}" : "已保留修改 · #{record[:model_name]} · 退出空间后统一更新代理",
+         'info', persistent: immediate, duration: (immediate ? nil : 2.8), model: model
+       )
+-      model_id = record[:model_id].to_s
+       scope_space_id = record[:space_id].to_s
+       ok = finalize_soft_individual_edit!(record, model)
++      # v0.13.7.15：写库后模型可能被归并到规范 model_id（重复模型合并）。必须用写库之后的 id
++      # 查找待更新任务；旧版用写库前的 id，找不到就静默退回“退出空间后更新”。
++      model_id = record[:model_id].to_s
+       if ok && immediate
+         request_immediate_soft_proxy_refresh!(model_id, scope_space_id: scope_space_id, model: model)
+       elsif ok
+@@ -5756,6 +5853,7 @@
+       edit_record = soft_individual_edit_session(model)
+       if edit_record
+         edit_record[:ignore_transactions_until] = monotonic_time + 0.18
++        edit_record[:quick_fingerprint_before] = soft_individual_edit_quick_fingerprint(edit_record[:entity])
+         edit_record[:observe_changes] = true
+         edit_record[:last_inside_at] = monotonic_time
+         ensure_soft_individual_edit_entities_observer!(edit_record, model)
+@@ -6853,7 +6951,7 @@
+       token = SecureRandom.hex(6)
+       @native_history_refresh_tokens[model.object_id] = token
+       GavinTools::SULinkHubMultiSpace::Runtime.runtime_start_timer(
+-        0.03, false, label: 'history:refresh_ui', key: "history:refresh_ui:#{model.object_id}",
++        0.35, false, label: 'history:refresh_ui', key: "history:refresh_ui:#{model.object_id}",
+         model: model, active_model_only: true
+       ) do
+         next unless @native_history_refresh_tokens[model.object_id] == token
+@@ -14153,12 +14251,17 @@
+       raise '真模型有效外包盒无效。' unless soft_bounds_values_valid?(full_values)
+       proxy_extents = soft_bounds_axis_extents_from_values(proxy_values)
+       full_extents = soft_bounds_axis_extents_from_values(full_values)
+-      proxy_x = [proxy_extents[0].to_f.abs, 1.0e-9].max
+-      proxy_y = [proxy_extents[1].to_f.abs, 1.0e-9].max
+-      proxy_z = [proxy_extents[2].to_f.abs, 1.0e-9].max
+-      scale_x = full_extents[0].to_f / proxy_x
+-      scale_y = full_extents[1].to_f / proxy_y
+-      scale_z = full_extents[2].to_f / proxy_z
++      # v0.13.7.15：任一轴为 0 时旧版会得到 0 缩放（不可逆矩阵）。片状模型应走原组件直通，
++      # 不该进入六面代理拟合；这里明确报错，而不是生成一个看不见的代理。
++      if full_extents.any? { |value| value.to_f.abs <= 1.0e-3 }
++        raise '片状（零厚度）模型不使用六面代理，请按平面指代模型处理。'
++      end
++      if proxy_extents.any? { |value| value.to_f.abs <= 1.0e-9 }
++        raise '代理模型含零尺寸轴，无法安全拟合到真模型尺寸。'
++      end
++      scale_x = full_extents[0].to_f / proxy_extents[0].to_f.abs
++      scale_y = full_extents[1].to_f / proxy_extents[1].to_f.abs
++      scale_z = full_extents[2].to_f / proxy_extents[2].to_f.abs
+       source_anchor = soft_bounds_bottom_center_from_values(proxy_values)
+       target_anchor = soft_bounds_bottom_center_from_values(full_values)
+       x_axis = Geom::Vector3d.new(scale_x, 0.0, 0.0)
+@@ -16572,8 +16675,12 @@
+         'started_at' => record['started_at'].to_s,
+         'heartbeat_at' => record['heartbeat_at'].to_s
+       }
+-    rescue StandardError
+-      { 'exists' => false, 'stale' => false, 'owned' => false, 'same_user' => false, 'same_user_recoverable' => false, 'path' => '', 'actor_role' => '' }
++    rescue StandardError => e
++      # v0.13.7.15：读锁失败（NAS 超时、锁文件损坏等）不能当成“没有锁”。返回 read_error，
++      # 修改尺寸等写操作据此跳过该空间，避免改到别人正在修改的空间。
++      log_exception('读取空间协作锁失败', e)
++      { 'exists' => false, 'stale' => false, 'owned' => false, 'same_user' => false, 'same_user_recoverable' => false,
++        'path' => '', 'actor_role' => '', 'read_error' => e.message.to_s }
+     end
+ 
+     def apply_space_lock_record_to_item!(item, record, actor_role: '')
+@@ -27046,6 +27153,8 @@
+           end
+         elsif entity_native_locked?(entity)
+           ['space_root_locked', "空间“#{label}”的根组件被锁定了。请先点击该空间的 LinkHub“修改”（不要用 SketchUp 右键解锁）。"]
++        elsif !lock['read_error'].to_s.empty?
++          ['lock_read_error', "无法读取空间“#{label}”的协作锁（#{lock['read_error']}）。请检查与共享目录的网络连接后重试。"]
+         elsif !lock['exists']
+           ['lock_missing', "空间“#{label}”的协作占用已经释放（可能已发布或已退出修改）。请重新点击该空间的 LinkHub“修改”。"]
+         elsif lock['stale']
+@@ -27336,12 +27445,21 @@
+     end
+ 
+     def soft_transformation_from_box_snapshot(snapshot, new_definition)
+-      new_extents = soft_definition_axis_extents(new_definition).map { |value| [value.to_f, 1.0e-9].max }
+-      desired = Array(snapshot[:dimensions]).map { |value| [value.to_f.abs, 1.0e-9].max }
++      new_extents = soft_definition_axis_extents(new_definition).map { |value| value.to_f.abs }
++      desired = Array(snapshot[:dimensions]).map { |value| value.to_f.abs }
++      # v0.13.7.15：片状（零厚度）卡片与普通模型互相替换时，旧版把 0 厚度夹成 1e-9 再相除，
++      # 得到接近 0 的缩放（不可逆矩阵，替换后模型看不见或无法再操作）。这里与入库同一规则：
++      # 任一侧低于 0.001 英寸的轴按另外两轴比例的平均值处理；两轴以上为 0 时拒绝。
++      flat = 1.0e-3
++      ratios = (0..2).map { |index| desired[index] > flat && new_extents[index] > flat ? desired[index] / new_extents[index] : nil }
++      valid = ratios.compact
++      raise '替换目标尺寸无效（至少两根轴尺寸为 0），无法保持外包尺寸替换。' if valid.length < 2
++      mean = valid.inject(0.0) { |sum, value| sum + value } / valid.length
++      ratios = ratios.map { |value| value || mean }
+       basis = Array(snapshot[:basis])
+-      x_axis = soft_scaled_vector(basis[0], X_AXIS, desired[0] / new_extents[0])
+-      y_axis = soft_scaled_vector(basis[1], Y_AXIS, desired[1] / new_extents[1])
+-      z_axis = soft_scaled_vector(basis[2], Z_AXIS, desired[2] / new_extents[2])
++      x_axis = soft_scaled_vector(basis[0], X_AXIS, ratios[0])
++      y_axis = soft_scaled_vector(basis[1], Y_AXIS, ratios[1])
++      z_axis = soft_scaled_vector(basis[2], Z_AXIS, ratios[2])
+       target_anchor = snapshot[:bottom_center]
+       source_anchor = definition_bounds_bottom_center(new_definition)
+       origin = Geom::Point3d.new(
+@@ -28855,6 +28973,7 @@
+     end
+ 
+     def replace_selected_soft_block(model_id)
++      operation_open = false
+       model = Sketchup.active_model
+       state, item, space_entity = current_local_editing_space(nil, model, required: true)
+       library_item = soft_library_item(model_id, force: false)
+@@ -28868,6 +28987,7 @@
+       end
+ 
+       model.start_operation("软装替换 #{library_item['name']}", true)
++      operation_open = true
+       if placeholder.is_a?(Sketchup::Group)
+         placeholder = placeholder.to_component
+         model.selection.clear
+@@ -28893,6 +29013,7 @@
+       model.selection.clear
+       replaced.each { |entity| model.selection.add(entity) if entity.valid? }
+       model.commit_operation
++      operation_open = false
+       record_library_recent('model', SOFT_SPACE_COLLECTION_KEY, library_item['id'], soft_library_root)
+       refresh_dialog
+       refresh_soft_designer_dialog(refresh_library: false, include_library: false, include_measurements: false)
+@@ -28900,7 +29021,8 @@
+       schedule_restore_default_select_tool(model, delay: 0.03, reason: '软装替换')
+       true
+     rescue StandardError
+-      model.abort_operation rescue nil
++      # v0.13.7.15：只回滚自己开启的 operation，不误伤其它命令正在进行的操作。
++      model.abort_operation rescue nil if operation_open
+       raise
+     end
+ 
+@@ -32103,12 +32225,18 @@
+             next unless record
+             begin
+               lock = space_lock_info(space, model, state: state)
++              unless lock['read_error'].to_s.empty?
++                skipped_locked << "#{space['number']}:#{space['name']}（协作锁读取失败）"
++                next
++              end
+               if lock['exists'] && !lock['stale'] && !local_space_edit_session?(space, state, model)
+                 skipped_locked << "#{space['number']}:#{space['name']}"
+                 next
+               end
+-            rescue StandardError
+-              nil
++            rescue StandardError => e
++              log_exception('核对空间协作锁失败', e)
++              skipped_locked << "#{space['number']}:#{space['name']}（协作锁核对失败）"
++              next
+             end
+             # v0.13.7.2：同款合并行带 variant_keys，尺寸同步作用到所有成员实例。
+             wanted_keys = ([target_variant_key] + Array(change['variant_keys']).map(&:to_s)).reject(&:empty?).uniq
+@@ -32243,12 +32371,18 @@
+     end
+ 
+     def definition_bounds_axis_bottom_center(definition, vertical_axis = 2, vertical_sign = 1)
+-      bounds = definition.bounds
+-      min = bounds.min
+-      max = bounds.max
+-      coords = [(min.x.to_f + max.x.to_f) * 0.5, (min.y.to_f + max.y.to_f) * 0.5, (min.z.to_f + max.z.to_f) * 0.5]
+-      mins = [min.x.to_f, min.y.to_f, min.z.to_f]
+-      maxs = [max.x.to_f, max.y.to_f, max.z.to_f]
++      # v0.13.7.15：锚点必须与尺寸来自同一个外包盒。尺寸用“有效几何”（排除隐藏物体、辅助线、
++      # 文字、标注），旧版锚点却用原生 bounds；组件里有远处的辅助点时，清单改尺寸后家具会跳位。
++      values = soft_definition_bounds_values(definition)
++      if soft_bounds_values_valid?(values)
++        mins = values[0, 3].map(&:to_f)
++        maxs = values[3, 3].map(&:to_f)
++      else
++        bounds = definition.bounds
++        mins = [bounds.min.x.to_f, bounds.min.y.to_f, bounds.min.z.to_f]
++        maxs = [bounds.max.x.to_f, bounds.max.y.to_f, bounds.max.z.to_f]
++      end
++      coords = (0..2).map { |index| (mins[index] + maxs[index]) * 0.5 }
+       axis = vertical_axis.to_i
+       axis = 2 unless (0..2).include?(axis)
+       coords[axis] = vertical_sign.to_i < 0 ? maxs[axis] : mins[axis]
+@@ -32310,6 +32444,7 @@
+     end
+ 
+     def update_soft_schedule_dimensions(json, model = Sketchup.active_model)
++      operation_open = false
+       payload = parse_soft_schedule_edit_payload(json)
+       target_variant_key = payload['variant_key'].to_s
+       raise '清单条目标识无效，请刷新后重试。' if target_variant_key.empty?
+@@ -32337,12 +32472,18 @@
+         next unless entity && entity.valid?
+         begin
+           lock = space_lock_info(space, model, state: state)
++          unless lock['read_error'].to_s.empty?
++            skipped_locked << "#{space['number']}:#{space['name']}（协作锁读取失败）"
++            next
++          end
+           if lock['exists'] && !lock['stale'] && !local_space_edit_session?(space, state, model)
+             skipped_locked << "#{space['number']}:#{space['name']}"
+             next
+           end
+-        rescue StandardError
+-          nil
++        rescue StandardError => e
++          log_exception('核对空间协作锁失败', e)
++          skipped_locked << "#{space['number']}:#{space['name']}（协作锁核对失败）"
++          next
+         end
+         matches = collect_soft_schedule_variant_instances(entity.definition, entity.transformation, target_variant_key)
+         next if matches.empty?
+@@ -32357,10 +32498,12 @@
+       # v0.13.6.31：采购清单尺寸同步不再自动校正组件轴。
+       # 已校对好的轴只能由家具入库/模型库维护流程显式处理。
+       model.start_operation('采购清单同步组件尺寸', true)
++      operation_open = true
+       unique_targets.each_value do |entry|
+         resize_soft_schedule_instance!(entry[:instance], entry[:parent_transform], target_length, target_width, target_height)
+       end
+       model.commit_operation
++      operation_open = false
+       affected_space_ids.uniq.each { |space_id| bump_soft_measurement_revision(model, space_id) }
+       soft_model_transaction_committed(model)
+       unless soft_schedule_batch_applying?
+@@ -32372,7 +32515,8 @@
+       end
+       true
+     rescue StandardError
+-      model.abort_operation rescue nil
++      # v0.13.7.15：只回滚自己开启的 operation，不误伤其它命令正在进行的操作。
++      model.abort_operation rescue nil if operation_open
+       raise
+     end
+ 
+@@ -41988,7 +42132,14 @@
+       show_status("已登记待入库家具：#{names}；模型保持原状并以蓝色标记，你可以继续加入下一批，最后退出当前空间一次统一处理。", 'info')
+       show_workspace_floating_notice("待入库 · #{names}", 'info', duration: 4.5, model: model)
+       Sketchup.set_status_text("待入库 #{candidates.length} 项 · 可继续加批次 · 最后退出空间统一处理") if Sketchup.respond_to?(:set_status_text)
+-      runtime_start_timer(0.12, false, label: 'soft:tagged_ingest_wait_workspace_exit') { process_soft_tagged_furniture_ingest_job }
++      timer = runtime_start_timer(0.12, false, label: 'soft:tagged_ingest_wait_workspace_exit') { process_soft_tagged_furniture_ingest_job }
++      unless timer
++        # v0.13.7.15：入库队列定时器没建起来时不能留下一个永远“等待退出空间”的队列。
++        failed = @soft_ingest_batch_job
++        @soft_ingest_batch_job = nil
++        finish_task_center_job!(failed[:task_id], success: false, stage: '家具入库未启动', detail: '无法创建入库队列定时器') if failed.is_a?(Hash) && !failed[:task_id].to_s.empty?
++        raise '无法启动家具入库队列，请重试。'
++      end
+       true
+     end
+ 
+@@ -42169,7 +42320,14 @@
+       show_status("家具入库已登记：#{scope_text}；#{names} 保持原状并以蓝色标记，退出空间后统一处理，期间可继续追加。", 'info')
+       show_workspace_floating_notice("待入库 · #{names} · 退出空间后处理", 'info', duration: 4.5, model: model)
+       Sketchup.set_status_text("待入库 #{candidates.length} 项 · 请正常退出当前空间") if Sketchup.respond_to?(:set_status_text)
+-      runtime_start_timer(0.12, false, label: 'soft:tagged_ingest_wait_workspace_exit') { process_soft_tagged_furniture_ingest_job }
++      timer = runtime_start_timer(0.12, false, label: 'soft:tagged_ingest_wait_workspace_exit') { process_soft_tagged_furniture_ingest_job }
++      unless timer
++        # v0.13.7.15：入库队列定时器没建起来时不能留下一个永远“等待退出空间”的队列。
++        failed = @soft_ingest_batch_job
++        @soft_ingest_batch_job = nil
++        finish_task_center_job!(failed[:task_id], success: false, stage: '家具入库未启动', detail: '无法创建入库队列定时器') if failed.is_a?(Hash) && !failed[:task_id].to_s.empty?
++        raise '无法启动家具入库队列，请重试。'
++      end
+       true
+     end
+ 
+@@ -43362,6 +43520,7 @@
+           raise '更新后的模型文件在验证结束后立即变化；未把变化后的文件当成本次写入版本。'
+         end
+         invalidate_soft_library_file_signature!(target)
++        note_soft_library_source_rewritten!(target)
+         {
+           'path' => target,
+           'backup' => backup.to_s,
+@@ -45190,6 +45349,36 @@
+       ''
+     end
+ 
++    # v0.13.7.15：本机每次成功改写模型库源 SKP 时递增版本号，并把该模型轴测视图标记为过期。
++    # NAS 时间精度粗时，改轴后的新 SKP 可能与旧文件“修改时间 + 大小”完全相同；只靠签名会把旧缩略图
++    # 当成最新，也会漏掉“生成过程中又被修改”的重建。版本号和删除记录不依赖文件时间。
++    def note_soft_library_source_rewritten!(path, root = soft_library_root)
++      key = normalize_soft_library_key(path)
++      @soft_library_source_revisions ||= {}
++      @soft_library_source_revisions[key] = @soft_library_source_revisions[key].to_i + 1
++      if respond_to?(:soft_thumbnail_view_path) && respond_to?(:soft_thumbnail_view_signature_path)
++        %w[a b front].each do |view|
++          [false, true].each do |hd|
++            image = soft_thumbnail_view_path(path, view, root, hd: hd)
++            next unless File.file?(image)
++            # 写入“已过期”标记（而不是删除）：没有记录的旧视图会退回按修改时间判断，
++            # 源文件保留原修改时间时仍可能被误判为最新。
++            File.write(soft_thumbnail_view_signature_path(image), "stale:#{Time.now.to_f}")
++          end
++        end
++      end
++      true
++    rescue StandardError => e
++      log_exception('记录模型库源文件改写失败', e)
++      false
++    end
++
++    def soft_library_source_revision(path)
++      (@soft_library_source_revisions || {})[normalize_soft_library_key(path)].to_i
++    rescue StandardError
++      0
++    end
++
+     def invalidate_soft_library_file_signature!(path = nil)
+       @soft_library_file_signature_cache ||= {}
+       if path.to_s.empty?
+@@ -50517,13 +50706,39 @@
+       ) do
+         next unless @edit_structure_audit_tokens[key] == token
+         next if soft_heavy_interaction?
+-        audit_active_edit_structures(model)
++        # v0.13.7.15：结构审计每次约 1.4 秒（现场日志），而普通的几何/材质编辑根本不会改变根层结构。
++        # 先比较一个廉价的根层签名；与上次“审计通过”时相同就跳过。根层增删、炸开、成组、
++        # 锁定、定义替换、修改会话变化都会改变签名，照常完整审计。
++        @edit_structure_guard_signatures ||= {}
++        signature = edit_structure_guard_signature(model)
++        next if signature && @edit_structure_guard_signatures[key] == signature
++        @edit_structure_guard_signatures.delete(key)
++        passed = audit_active_edit_structures(model)
++        @edit_structure_guard_signatures[key] = signature if passed == true && signature
+       end
+       true
+     rescue StandardError
+       false
+     end
+ 
++    def edit_structure_guard_signature(model)
++      return nil unless model
++      protections = (@edit_root_protections || {}).keys.select { |cache_key| cache_key.is_a?(Array) && cache_key.first == model.object_id }
++      rows = []
++      model.entities.each do |entity|
++        if entity.respond_to?(:definition) && entity.respond_to?(:get_attribute) && entity.get_attribute(ENTITY_DICT, 'managed', false)
++          wrapper_count = (world_wrapper_instance?(entity) ? entity.definition.entities.length : -1) rescue -1
++          rows << [entity.persistent_id, entity.class.name, entity.locked?, entity.definition.object_id,
++                   entity.transformation.to_a.map { |value| value.to_f.round(6) }, wrapper_count]
++        else
++          rows << entity.persistent_id
++        end
++      end
++      Digest::SHA1.hexdigest(Marshal.dump([protections.map { |cache_key| cache_key[1].to_s }.sort, rows]))
++    rescue StandardError
++      nil
++    end
++
+     def unlocked_managed_root_entries(state, model = Sketchup.active_model)
+       entries = []
+       # 只处理本机真实修改会话。模型载入/代真切换/更新事务中的瞬时解锁，或旧状态
+@@ -54620,7 +54835,7 @@
+         file_snapshot = if background_active && entity && entity.valid?
+                           { exists: true, signature: item['last_signature'].to_s, size_mb: 0.0 }
+                         else
+-                          space_status_file_snapshot(resolved)
++                          space_status_file_snapshot(resolved, ttl: 3.0) # v0.13.7.15：界面显示用，3 秒内不重复访问 NAS
+                         end
+         exists = file_snapshot[:exists] == true
+         actual_representation = entity && entity.valid? ? entity.get_attribute(ENTITY_DICT, 'space_representation', 'full').to_s : state['space_effective_display_mode'].to_s
+@@ -57662,7 +57877,12 @@
+       }
+       show_consistency_update_progress!(@consistency_update_job, "一致性更新 0/#{total} · 准备中", 0)
+       refresh_workspace_toolbar(model) rescue nil
+-      schedule_consistency_update_step!(token, delay: 0.05)
++      unless schedule_consistency_update_step!(token, delay: 0.05)
++        failed = @consistency_update_job
++        @consistency_update_job = nil
++        show_consistency_update_progress!(failed, '一致性更新未启动 · 定时器创建失败', 100, level: 'error') rescue nil
++        raise '无法启动一致性更新定时器。'
++      end
+       true
+     rescue StandardError => e
+       log_exception('启动空间与组件一致性更新失败', e)
+@@ -57671,10 +57891,10 @@
+     end
+ 
+     def schedule_consistency_update_step!(token, delay: 0.08)
+-      runtime_start_timer(delay.to_f, false, label: 'consistency:update', key: "consistency:update:#{token}") do
++      timer = runtime_start_timer(delay.to_f, false, label: 'consistency:update', key: "consistency:update:#{token}") do
+         process_consistency_update_step!(token)
+       end
+-      true
++      !timer.nil?
+     rescue StandardError => e
+       log_exception('安排一致性更新步骤失败', e)
+       false
+@@ -57684,7 +57904,18 @@
+       job = @consistency_update_job
+       return false unless job.is_a?(Hash) && job[:token].to_s == token.to_s
+       model = job[:model]
+-      return schedule_consistency_update_step!(token, delay: 0.35) unless model && model == Sketchup.active_model
++      unless model && model == Sketchup.active_model
++        # v0.13.7.15：模型被关闭/切换后，旧版每 0.35 秒无限重试，并一直挡住其它更新。超过 30 秒结束任务。
++        job[:inactive_since] ||= monotonic_time
++        if monotonic_time - job[:inactive_since].to_f > 30.0
++          @consistency_update_job = nil
++          show_consistency_update_progress!(job, '一致性更新已停止 · 当前模型已切换或关闭', 100, level: 'warning') rescue nil
++          log('一致性更新已停止：所属模型不再是当前模型（超过 30 秒）')
++          return false
++        end
++        return schedule_consistency_update_step!(token, delay: 0.35)
++      end
++      job.delete(:inactive_since)
+       return schedule_consistency_update_step!(token, delay: 0.30) if publish_critical_section? || publish_post_quiet? || @updating || @single_space_update_job || @space_batch_update_job || @shared_component_batch_update_job
+ 
+       space_row = Array(job[:space_rows]).shift
+@@ -58016,8 +58247,19 @@
+       return false unless job.is_a?(Hash) && job[:token].to_s == token.to_s
+       model = job[:model]
+       unless model && model == Sketchup.active_model
++        job[:inactive_since] ||= monotonic_time
++        if monotonic_time - job[:inactive_since].to_f > 30.0
++          Array(job[:rows]).each do |pending_row|
++            name = pending_row.is_a?(Hash) ? (pending_row[:name] || pending_row['name']).to_s : ''
++            (job[:failures] ||= []) << { name: name, message: '当前模型已切换或关闭' }
++          end
++          job[:rows] = []
++          log('协同组件批量更新已停止：所属模型不再是当前模型（超过 30 秒）')
++          return finish_shared_component_batch_update!(job, Sketchup.active_model)
++        end
+         return schedule_shared_component_batch_update_step!(token, delay: 0.35)
+       end
++      job.delete(:inactive_since)
+       if publish_critical_section? || publish_post_quiet? || @updating || @single_space_update_job || @space_batch_update_job
+         return schedule_shared_component_batch_update_step!(token, delay: 0.30)
+       end
+@@ -58871,6 +59113,7 @@
+         @soft_visual_proxy_driver_timer_id = nil
+         @soft_visual_proxy_watchdog_timer_id = nil
+         @soft_visual_proxy_driver_processing = false
++        recover_soft_thumbnail_pipeline_after_reload! rescue nil
+         @managed_root_indexes = {}
+         @managed_root_index_revisions = {}
+         @project_state_cache = {}
+diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
+--- a/su_linkhub/thumbnail_views.rb	2026-10-14 09:36:39.000000000 +0000
++++ b/su_linkhub/thumbnail_views.rb	2026-10-16 06:19:57.945409710 +0000
+@@ -34,14 +34,44 @@
+         File.join(soft_library_thumbnail_dir(root), "#{soft_model_id_for_path(source_path)}.view_#{view}#{hd ? '.hd' : ''}.png")
+       end
+ 
++      # v0.13.7.15：视图是否最新改为按“生成时源 SKP 的签名”判断（旁边的 .src 文件）。
++      # 旧版只比较修改时间（视图 >= 源 SKP）。NAS 上时间精度粗，源模型改了轴/几何后，
++      # 旧视图可能与新源 SKP 时间相同而被当成最新，清单/模型库继续显示旧图。
++      # 没有 .src 的旧视图：只有修改时间严格晚于源 SKP 才算有效。
++      def soft_thumbnail_view_signature_path(file)
++        "#{file}.src"
++      end
++
+       def soft_thumbnail_view_current?(source_path, view, root = soft_library_root, hd: false)
+         file = soft_thumbnail_view_path(source_path, view, root, hd: hd)
+         return false unless File.file?(file) && File.size(file).positive? && File.file?(source_path)
+-        File.mtime(file).to_f >= File.mtime(source_path).to_f && soft_thumbnail_view_content_valid?(file)
++        sidecar = soft_thumbnail_view_signature_path(file)
++        fresh = if File.file?(sidecar)
++                  recorded = File.read(sidecar).to_s.strip
++                  !recorded.empty? && recorded == fast_file_signature(source_path).to_s
++                else
++                  File.mtime(file).to_f > File.mtime(source_path).to_f
++                end
++        fresh && soft_thumbnail_view_content_valid?(file)
+       rescue StandardError
+         false
+       end
+ 
++      def write_soft_thumbnail_view_signature!(source_signature, *files)
++        return false if source_signature.to_s.empty?
++        files.flatten.each do |file|
++          next unless File.file?(file.to_s)
++          sidecar = soft_thumbnail_view_signature_path(file)
++          temp = "#{sidecar}.#{Process.pid}-#{SecureRandom.hex(3)}.tmp"
++          File.write(temp, source_signature.to_s)
++          linkhub_mv(temp, sidecar)
++        end
++        true
++      rescue StandardError => e
++        log_exception('记录缩略图视图源签名失败', e)
++        false
++      end
++
+       # write_image 可能成功写出格式正确但完全没有模型像素的白图。文件大小不能
+       # 证明截图有效；复用显示适配分析器，要求画面里存在足够的非背景主体。
+       def soft_thumbnail_view_content_plan(path)
+@@ -274,9 +304,18 @@
+ 
+       # 只在一个可回滚 operation 内临时放置截图实例；结束时 abort，模型、样式、选择、相机全部恢复。
+       def render_soft_thumbnail_view!(model, source_path, view, root = soft_library_root, local_stage: false)
+-        with_soft_commit_world_context(model) do
++        # 先记下源 SKP 签名再渲染：渲染期间源模型若又被改写，签名对不上，下次会自动重新生成。
++        source_signature = fast_file_signature(source_path).to_s
++        result = with_soft_commit_world_context(model) do
+           render_soft_thumbnail_view_world!(model, source_path, view, root, local_stage: local_stage)
+         end
++        rendered_view = result.is_a?(Hash) && !result[:view].to_s.empty? ? result[:view].to_s : view.to_s
++        write_soft_thumbnail_view_signature!(
++          source_signature,
++          soft_thumbnail_view_path(source_path, rendered_view, root),
++          soft_thumbnail_view_path(source_path, rendered_view, root, hd: true)
++        )
++        result
+       end
+ 
+       def render_soft_thumbnail_view_world!(model, source_path, view, root, local_stage: false)
+@@ -372,16 +411,20 @@
+ 
+       # immediate=true：用户点击触发，立即执行（允许在空间内临时切到世界根）。
+       # apply_view：完成后把该视图设为默认；nil 表示保持原选择。
+-      def enqueue_soft_thumbnail_views!(model_id, reason: '', immediate: false, apply_view: nil, notify: false, force: false)
++      # v0.13.7.15：pipeline_task_id 非空表示这是“家具更新”统一任务的最后两张（轴测 a/b）：
++      # 六面代理完成后立即接着生成，进度接在 6/8 后面，两张都完成后才结束任务中心里的同一个任务。
++      def enqueue_soft_thumbnail_views!(model_id, reason: '', immediate: false, apply_view: nil, notify: false, force: false,
++                                        pipeline_task_id: '', pipeline_label: '', allow_inside_space: false)
+         id = model_id.to_s.strip
+         return false if id.empty?
+         @soft_thumbnail_view_queue ||= []
++        pipeline = !pipeline_task_id.to_s.empty?
+         job = @soft_thumbnail_view_queue.find { |item| item[:id] == id }
+         if job
+-          if immediate && (force || !apply_view.nil?)
++          if (immediate && (force || !apply_view.nil?)) || pipeline
+             job[:done] = []
+             job[:attempts] = 0
+-            job[:local_stage] = true
++            job[:local_stage] = true if immediate
+           end
+           job[:immediate] ||= immediate
+           job[:notify] ||= notify
+@@ -392,11 +435,27 @@
+                   force: force, done: [], attempts: 0, queued_at: monotonic_time }
+           @soft_thumbnail_view_queue << job
+         end
+-        if immediate
++        if pipeline
++          previous_task = job[:pipeline_task_id].to_s
++          if !previous_task.empty? && previous_task != pipeline_task_id.to_s
++            finish_task_center_job!(previous_task, success: true, stage: '已合并到最新更新', detail: '同款家具又有新版本，轴测随最新任务生成')
++          end
++          job[:pipeline_task_id] = pipeline_task_id.to_s
++          job[:pipeline_label] = pipeline_label.to_s
++          job[:pipeline_allow_inside_space] = true if allow_inside_space
++          job[:pipeline_queued_at] = monotonic_time
++          job[:force] = true
++          job.delete(:blocked_since)
++        end
++        if immediate || pipeline
+           @soft_thumbnail_view_queue.delete(job)
+           @soft_thumbnail_view_queue.unshift(job)
+         end
+-        ensure_soft_thumbnail_view_driver!
++        unless ensure_soft_thumbnail_view_driver!
++          # 定时器没建起来：任务保留在队列里（解除统一任务关联），下一次排队或插件重载时会重新启动处理。
++          job[:pipeline_task_id] = '' if pipeline
++          raise '无法启动缩略图生成定时器。'
++        end
+         true
+       rescue StandardError => e
+         log_exception('缩略图视图排队失败', e)
+@@ -409,7 +468,60 @@
+         @soft_thumbnail_view_timer = runtime_start_timer(0.4, true, label: 'library:thumbnail_views', key: 'library:thumbnail_views') do
+           process_soft_thumbnail_view_queue_tick!
+         end
++        # v0.13.7.15：定时器没建起来时如实返回失败，避免任务永远留在队列里没人处理。
++        !@soft_thumbnail_view_timer.nil?
++      end
++
++      # 同款家具的六面代理还在排队/生成，或修改后还在等退出空间：轴测图等代理完成后一起生成，
++      # 不提前用旧状态拍一遍。只读内存中的队列，不扫描模型。
++      def soft_thumbnail_waiting_for_proxy?(model_id, model = Sketchup.active_model)
++        id = model_id.to_s
++        return false if id.empty?
++        job = @soft_visual_proxy_upgrade_job
++        if job.is_a?(Hash)
++          rows = Array(job[:scan_queue]) + Array(job[:queue])
++          active = job[:active_candidate_state]
++          rows << active[:candidate] if active.is_a?(Hash) && active[:candidate].is_a?(Hash)
++          return true if rows.any? { |row| row.is_a?(Hash) && row[:model_id].to_s == id }
++        end
++        records = model && @soft_pending_proxy_rebuilds.is_a?(Hash) ? Array(@soft_pending_proxy_rebuilds[model.object_id]) : []
++        records.any? do |record|
++          record.is_a?(Hash) && record[:model_id].to_s == id && !%w[failed completed].include?(record[:phase].to_s) &&
++            record[:entity] && record[:entity].valid?
++        end
++      rescue StandardError
++        false
++      end
++
++      def soft_thumbnail_pipeline_progress!(job, completed_views, stage, detail = '', model: Sketchup.active_model)
++        task_id = job[:pipeline_task_id].to_s
++        return false if task_id.empty?
++        progress = (completed_views.to_f / 8.0 * 100.0).round
++        update_task_center_job!(task_id, progress: progress, stage: stage, detail: detail, status: 'running', raw: true)
++        sync_task_center_overlay_ui!(model) rescue nil
++        label = job[:pipeline_label].to_s
++        show_workspace_floating_notice("家具更新#{label.empty? ? '' : " · #{label}"} · #{stage}", 'info', progress: progress, persistent: true, model: model) rescue nil
+         true
++      rescue StandardError
++        false
++      end
++
++      def finish_soft_thumbnail_pipeline!(job, success:, detail: '', model: Sketchup.active_model)
++        task_id = job[:pipeline_task_id].to_s
++        return false if task_id.empty?
++        label = job[:pipeline_label].to_s
++        if success
++          finish_task_center_job!(task_id, success: true, stage: '家具更新完成 · 8/8', detail: detail.to_s.empty? ? '源模型、六面代理、两张轴测缩略图均已更新' : detail)
++          show_workspace_floating_notice("家具更新完成#{label.empty? ? '' : " · #{label}"} · 8/8", 'success', progress: 100, duration: 3.0, model: model) rescue nil
++        else
++          finish_task_center_job!(task_id, success: false, stage: '轴测缩略图未完成', detail: detail)
++          show_workspace_floating_notice("家具已更新，但轴测缩略图未完成#{label.empty? ? '' : " · #{label}"} · #{detail}", 'warning', duration: 6.0, model: model) rescue nil
++        end
++        sync_task_center_overlay_ui!(model) rescue nil
++        job[:pipeline_task_id] = ''
++        true
++      rescue StandardError
++        false
+       end
+ 
+       def stop_soft_thumbnail_view_driver!
+@@ -438,14 +550,33 @@
+         end
+         model = Sketchup.active_model
+         job = queue.first
+-        ready, _reason, _retry = soft_visual_proxy_queue_ready?(model, allow_inside_space: job[:immediate] == true)
+-        return unless ready
+-        return if !job[:immediate] && runtime_interaction_age(model) < SOFT_THUMBNAIL_VIEW_IDLE_SECONDS
+-        return if @soft_visual_proxy_upgrade_job && !job[:immediate] && soft_heavy_interaction?
++        pipeline = !job[:pipeline_task_id].to_s.empty?
++        # 自动排队（非用户点击、非统一更新任务）的视图：同款代理还没完成就先放到队尾等待。
++        if !pipeline && !job[:immediate] && soft_thumbnail_waiting_for_proxy?(job[:id], model)
++          queue.rotate! if queue.length > 1
++          return
++        end
++        ready, ready_reason, _retry = soft_visual_proxy_queue_ready?(
++          model, allow_inside_space: (job[:immediate] == true || job[:pipeline_allow_inside_space] == true)
++        )
++        unless ready
++          if pipeline
++            job[:blocked_since] ||= monotonic_time
++            if monotonic_time - job[:blocked_since].to_f > 300.0
++              # 统一任务不能永远挂着：结束任务并说明原因，轴测图留在普通队列里，空闲时补齐。
++              finish_soft_thumbnail_pipeline!(job, success: false, detail: "等待安全截图时机超过 5 分钟（#{ready_reason}），空闲时自动补齐", model: model)
++            end
++          end
++          return
++        end
++        job.delete(:blocked_since)
++        return if !job[:immediate] && !pipeline && runtime_interaction_age(model) < SOFT_THUMBNAIL_VIEW_IDLE_SECONDS
++        return if @soft_visual_proxy_upgrade_job && !job[:immediate] && !pipeline && soft_heavy_interaction?
+ 
+         item = soft_thumbnail_view_item(job[:id])
+         unless item
+           queue.shift
++          finish_soft_thumbnail_pipeline!(job, success: false, detail: '模型库里找不到这个模型的源文件', model: model) if pipeline
+           return
+         end
+         root = soft_library_root
+@@ -456,11 +587,16 @@
+                                         soft_thumbnail_view_current?(source_path, view, root, hd: true))
+         end
+         unless pending.empty?
++          if pipeline
++            current_index = 6 + job[:done].length + 1
++            soft_thumbnail_pipeline_progress!(job, current_index - 1, "视图 #{current_index}/8 · 轴测 #{pending.first}", '六面代理已完成，正在生成轴测缩略图', model: model)
++          end
+           result = render_soft_thumbnail_view!(
+             model, source_path, pending.first, root,
+-            local_stage: (job[:immediate] == true || job[:local_stage] == true)
++            local_stage: (job[:immediate] == true || job[:local_stage] == true || job[:pipeline_allow_inside_space] == true)
+           )
+           job[:done] << pending.first
++          soft_thumbnail_pipeline_progress!(job, 6 + job[:done].length, "视图 #{6 + job[:done].length}/8 · 轴测 #{pending.first} 完成", '', model: model) if pipeline
+           if result[:face_camera]
+             # 片状朝向相机组件：只保留正视图，固定使用 front。
+             job[:views] = ['front']
+@@ -475,6 +611,7 @@
+         if apply_soft_thumbnail_preferred_view!(source_path, root)
+           queue.shift
+           send_soft_thumbnail_view_update!(item, source_path, root)
++          finish_soft_thumbnail_pipeline!(job, success: true, model: model) if pipeline
+           show_status("“#{item['name']}”缩略图已更新。", 'success') if job[:notify]
+         else
+           raise '无法应用新缩略图，旧缩略图已保留。'
+@@ -486,6 +623,7 @@
+           job[:local_stage] = true
+           if job[:attempts] >= 2
+             queue.delete(job)
++            finish_soft_thumbnail_pipeline!(job, success: false, detail: e.message.to_s) unless job[:pipeline_task_id].to_s.empty?
+             item ||= soft_thumbnail_view_item(job[:id])
+             if item
+               recovered = apply_soft_thumbnail_preferred_view!(item['path'].to_s, soft_library_root) rescue false
+diff -ruN a/su_linkhub.rb b/su_linkhub.rb
+--- a/su_linkhub.rb	2026-10-14 09:37:21.000000000 +0000
++++ b/su_linkhub.rb	2026-10-16 06:12:27.692371880 +0000
+@@ -8,7 +8,7 @@
+   # 会导致常量和启动方法互相覆盖，并把 runtime.rb 错指到其他插件目录。
+   module SULinkHubMultiSpace
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.14' unless const_defined?(:EXTENSION_VERSION, false)
++    EXTENSION_VERSION = '0.13.7.15' unless const_defined?(:EXTENSION_VERSION, false)
+ 
+     unless file_loaded?(__FILE__)
+       extension = SketchupExtension.new(EXTENSION_NAME, 'su_linkhub/main')

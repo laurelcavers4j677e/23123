@@ -1,0 +1,396 @@
+diff -ruN a/CHANGELOG_v0.13.7.10.txt b/CHANGELOG_v0.13.7.10.txt
+--- a/CHANGELOG_v0.13.7.10.txt	1970-01-01 00:00:00.000000000 +0000
++++ b/CHANGELOG_v0.13.7.10.txt	2026-10-14 03:44:17.000000000 +0000
+@@ -0,0 +1,44 @@
++SU LinkHub v0.13.7.10
++
++在 v0.13.7.9 基础上：
++
++一、修复浅色材质家具（米白罗马帘、白纱帘、白瓷等）入库后缩略图为白图、点刷新仍为白图。
++
++根因：
++- 缩略图渲染关闭了轮廓线（DrawSilhouettes=false），背景为纯白。高模平滑网格没有硬边，浅色家具与白背景之间没有任何边界。
++- 白底校正（normalize_soft_thumbnail_white_background!）从画面边缘按容差 34 洪水填充成纯白。米白材质（约 244,240,234）与白色的距离约 28，小于 34，整件家具被当作背景抹成纯白。
++- 抹白后四角亮度仍是白色，旧验收只看四角，于是白图被当作“成功”写入缓存；内置缩略图提取还是先覆盖正式缩略图再校正。
++
++修复：
++- 缩略图渲染开启 1px 轮廓线，浅色家具始终有可见外轮廓。
++- 白底校正：原图已是白底时，抠白容差从 34 降到 6，只处理几乎纯白的背景；灰底恢复仍用 34。
++- 白底校正后若主体像素几乎全部消失，撤销本次抠白，保留原像素。
++- 内置缩略图提取与源 SKP 缓存写入：增加主体像素验收；先在临时文件上校正和验收，通过后才替换正式缩略图，空白图不覆盖旧图（源 SKP 不因缓存图空白而回滚）。
++- 轮廓线宽度纳入渲染设置快照，缩略图生成后恢复用户原来的轮廓线宽度。
++
++二、所有模型点 ⟳ 刷新 / ⇄ 反转后变白（与材质无关）
++
++根因（静态分析 v0.13.7.9 代码，SketchUp 现场未复现）：
++- 刷新与反转用的 a/b 两张视图都只来自同一条路径：在一个 disable_ui 的临时 operation 里载入模型、隐藏项目根实体、
++  放入临时实例，然后立即用当前视口 View#write_image 截图。截图结果依赖视口当时的状态（裁剪面、刷新时机、
++  隔离方式）。插件日志（v0.13.6.192 更新说明）已记录：同一机器上六面代理的“远端隔离”截图六个方向全部拍空。
++  缩略图视图的后台生成也用远端隔离，而且没有沿用六面代理“本会话禁用远端法”的开关。
++- v0.13.7.3–v0.13.7.8 没有内容验收，拍空的白图直接写成视图图片并复制为标准缩略图 <id>.png。
++- v0.13.7.9 加了验收：拍空会报“缩略图视图为空白”，不再覆盖；但失败后推送的“旧缩略图”就是早已被白图覆盖的
++  <id>.png，所以刷新、反转后仍显示白图。截图路径本身没有备用方案，所以每次都失败。
++- 载入临时副本并不能避开项目里的同名定义：SketchUp 按 definition GUID 去重，可能直接返回项目中的旧定义。
++
++修复：
++- 视口截图拍空/全白时，自动改用 SketchUp 组件缩略图离屏渲染（thumbnail_camera + refresh_thumbnail +
++  save_thumbnail，与 SKP 内置缩略图同一渲染路径），相机仍按组件轴的 a/b 轴测方向；通过主体验收才写入。
++- 六面代理在本会话检测到远端隔离拍空后，缩略图视图也不再使用远端隔离。
++- 两次生成都失败，且现有标准缩略图本身也是空白时，改用源 SKP 内置缩略图恢复，不再推送旧白图。
++- 拍空时在本机临时目录 thumbnail_blank_diagnostics 保留诊断（相机输入、隔离方式、根实体数、视口尺寸），日志带 [thumbview]。
++- 载入返回项目中已有同 GUID 定义时写日志，便于排查“缩略图是旧几何”。
++
++六面体六视图（六面代理）检查结果：
++- 六面代理有自己的拍空保护：六个方向全部透明时报错，自动改走近原点隔离 + 白/黑双底重拍一次，并在本会话禁用远端法。
++- 两处保护偏宽（本版未改，避免误伤薄片家具）：只要六个方向里有一个方向有像素就算通过；
++  24 位完全不透明的视图不检查内容。若某个方向拍空，代理盒会出现个别白面。
++
++其余同 v0.13.7.9（见 CHANGELOG_v0.13.7.9.txt）。
+diff -ruN a/su_linkhub/README.txt b/su_linkhub/README.txt
+--- a/su_linkhub/README.txt	2026-10-13 10:11:48.000000000 +0000
++++ b/su_linkhub/README.txt	2026-10-14 03:23:35.000000000 +0000
+@@ -1,6 +1,7 @@
+-SU LinkHub v0.13.7.9
++SU LinkHub v0.13.7.10
+ 
+-本版新增（详见 CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
++本版新增（详见 CHANGELOG_v0.13.7.10.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
++- 浅色家具缩略图：米白/浅灰材质（如罗马帘、纱帘）入库或刷新后不再变成白图；缩略图带细轮廓线。
+ - 缩略图刷新：严格检测模型主体；白图不会覆盖旧图或误报成功，并关闭项目剖切影响。
+ - 家具选择：自动清理旧版遗留的受管家具锁定，家具保持可选择；单件编辑继续安全隔离。
+ - 清单合并：按表格可见资料合并；相同草稿规格也能合并显示并一致导出。
+@@ -16,7 +17,7 @@
+ - 发布/入库不再因个别家具缺代理而整单失败：缺代理家具以真模型随包发布，代理后台补齐。
+ - 来源同步不再把正在调整的联动副本弹回；发布前复核协同组件签名，避免“显示最新但内容旧”。
+ 
+-日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.9.log
++日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.10.log
+ 诊断输出：%TEMP%\SU_LinkHub\diagnostics\
+ 
+ ----------------------------------------------------------------
+diff -ruN a/su_linkhub/constants.rb b/su_linkhub/constants.rb
+--- a/su_linkhub/constants.rb	2026-10-13 10:11:30.000000000 +0000
++++ b/su_linkhub/constants.rb	2026-10-14 03:23:35.000000000 +0000
+@@ -4,7 +4,7 @@
+   module SULinkHubMultiSpace
+     module Runtime
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.9'.freeze
++    EXTENSION_VERSION = '0.13.7.10'.freeze
+     # 从这一版开始，空间编辑域进一步收口：整个 SKP 根层级不能作为空间修改容器，
+     # 空间内部原生锁定会被自动撤销；同时继承 13.5.5 的软装落位、冲突阻止和安全快照。
+     # 因此低于 0.13.6.18 的协作者仍可能绕过“编辑前必须最新”和强制恢复隔离规则，当前版本会明确提示团队统一升级。
+@@ -31,16 +31,16 @@
+     rescue StandardError
+       nil
+     end
+-    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.9.log').freeze
+-    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.9.log').freeze
+-    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.9.log').freeze
++    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.10.log').freeze
++    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.10.log').freeze
++    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.10.log').freeze
+     BACKGROUND_PUBLISH_QUEUE_PATH = File.join(TEMP_STATE_DIR, 'SU_LinkHub_后台发布队列_v0.13.6.100.json').freeze
+     BACKGROUND_PUBLISH_HISTORY_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布历史.jsonl').freeze
+     BACKGROUND_PUBLISH_LAST_STAGE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布最后阶段.txt').freeze
+-    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.9.log').freeze
++    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.10.log').freeze
+     SPACE_PUBLISH_QUEUE_POLL_INTERVAL = 0.12
+     SPACE_PUBLISH_QUEUE_MAX_HISTORY = 12
+-    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.9.log').freeze
++    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.10.log').freeze
+     TASK_CENTER_MAX_HISTORY = 18
+     # Ruby 后台线程只处理不触碰 SketchUp 模型/视图 API 的文件任务。两个 worker
+     # 可以让目录扫描、缓存落盘与 Excel 导出互不阻塞，同时避免机械盘/NAS 上过多
+diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
+--- a/su_linkhub/main.rb	2026-10-13 10:11:50.000000000 +0000
++++ b/su_linkhub/main.rb	2026-10-14 03:44:36.000000000 +0000
+@@ -25,6 +25,8 @@
+       const_defined?(:Runtime, false) ? const_get(:Runtime, false) : nil
+     end
+ 
++    # v0.13.7.10：浅色材质缩略图不再被抹白：缩略图渲染开启细轮廓线；白底抠图收紧容差并在抹掉主体时撤销；内置缩略图先验收主体再替换。
++    # v0.13.7.10：刷新/反转缩略图视图在视口截图拍空时改用组件缩略图离屏渲染；失败时不再推送旧白图；拍空保留诊断。
+     # v0.13.7.9：保留 v0.13.7.8 修复；缩略图刷新增加主体像素验收、隔离舞台、剖切关闭和强制缓存更新。
+     # v0.13.7.6：缩略图去掉正面/反面文字标签，只保留刷新/反转图标。
+     # v0.13.7.5：清单窗口布局整理（诊断菜单、底部提交条、空间胶囊页签、筛选小按钮、模型变化提示条）；合并别名提交到保留模型；朝向相机包装不累积。
+diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
+--- a/su_linkhub/runtime.rb	2026-10-13 10:10:56.000000000 +0000
++++ b/su_linkhub/runtime.rb	2026-10-14 03:29:01.000000000 +0000
+@@ -24328,8 +24328,13 @@
+               changed += width * height
+             end
+ 
+-            tolerance = 34
++            # v0.13.7.10：原图本来就是白底时（未做增益恢复），只把“几乎纯白”的背景抠白。
++            # 旧版固定容差 34 会把米白/浅灰家具（如 244,240,234）当成背景一起抹成纯白，
++            # 无轮廓线时整件家具消失，而四角亮度验收仍判“成功”，卡片就变成白图。
++            already_white = background_luma >= 238.0
++            tolerance = already_white ? 6 : 34
+             tolerance_sq = tolerance * tolerance
++            pixels_before_fill = pixels.dup
+             visited = Array.new(width * height, false)
+             queue = []
+             edge_indices.each do |pixel_index|
+@@ -24377,6 +24382,14 @@
+                 queue << neighbor
+               end
+             end
++
++            # v0.13.7.10：抠白后若画面里已经没有任何主体像素，而抠白前有，说明浅色家具
++            # 被当成背景抹掉了；撤销这一步抠白，宁可保留略灰背景也不能交出一张白图。
++            if soft_thumbnail_fill_erased_subject?(pixels_before_fill, pixels, width, height, channels, stride,
++                                                   red_offset, green_offset, blue_offset)
++              log('缩略图白底抠图会抹掉浅色主体，已撤销抠白，保留原始像素。')
++              pixels = pixels_before_fill
++            end
+           end
+         end
+       end
+@@ -24411,6 +24424,34 @@
+       File.delete(temp) if defined?(temp) && temp && File.file?(temp)
+     end
+ 
++    # v0.13.7.10：统计“明显不是白色”的像素（任一通道 < 245）。抠白前有足够主体、
++    # 抠白后几乎没有，即判定主体被抹掉。只看数量，不依赖 SketchUp，可单独测试。
++    def soft_thumbnail_fill_erased_subject?(before, after, width, height, channels, stride,
++                                            red_offset, green_offset, blue_offset)
++      count_subject = lambda do |data|
++        total = 0
++        height.times do |y|
++          row = y * stride
++          width.times do |x|
++            offset = row + x * channels
++            if data.getbyte(offset + red_offset).to_i < 245 ||
++               data.getbyte(offset + green_offset).to_i < 245 ||
++               data.getbyte(offset + blue_offset).to_i < 245
++              total += 1
++            end
++          end
++        end
++        total
++      end
++      minimum = [(width * height * 0.002).round, 24].max
++      before_count = count_subject.call(before)
++      return false if before_count < minimum
++      after_count = count_subject.call(after)
++      after_count < [minimum, (before_count * 0.15).round].max
++    rescue StandardError
++      false
++    end
++
+     # 严格验证缩略图四角确实已经恢复为明亮白底。刷新流程不能只验证
+     # “文件能读取”，否则图像处理失败时仍会把原来的深灰缩略图当作成功写回。
+     def soft_thumbnail_corner_luminance(path)
+@@ -24501,7 +24542,7 @@
+       keys = %w[
+         InactiveHidden InactiveFade DrawGround DrawHorizon DrawHidden DrawBackEdges
+         DrawDepthQue DrawLineEnds DrawProfilesOnly DisplaySketchAxes DisplayInstanceAxes
+-        DisplayFog DisplayColorByLayer DisplayWatermarks ModelTransparency DrawSilhouettes
++        DisplayFog DisplayColorByLayer DisplayWatermarks ModelTransparency DrawSilhouettes SilhouetteWidth
+         Texture RenderMode FaceFrontColor FaceBackColor BackgroundColor SkyColor GroundColor
+         AmbientOcclusion AmbientOcclusionDistance AmbientOcclusionIntensity
+         AmbientOcclusionColor AmbientOcclusionMultiplier DisplaySectionCuts DisplaySectionPlanes
+@@ -24539,7 +24580,11 @@
+         'DisplaySectionCuts' => false,
+         'DisplaySectionPlanes' => false,
+         'ModelTransparency' => false,
+-        'DrawSilhouettes' => false,
++        # v0.13.7.10：浅色/白色材质（米白罗马帘、白纱帘、白瓷）在纯白背景上没有
++        # 轮廓线时会与背景融为一体，后续主体验收或白底抠图会把整件家具判空/抹白。
++        # 打开细轮廓线，让浅色家具始终有可见边界；高模平滑网格没有硬边，只能靠轮廓。
++        'DrawSilhouettes' => true,
++        'SilhouetteWidth' => 1,
+         'FaceFrontColor' => Sketchup::Color.new(238, 238, 238),
+         'FaceBackColor' => Sketchup::Color.new(222, 222, 222),
+         'AmbientOcclusion' => false,
+@@ -24846,8 +24891,14 @@
+             linkhub_copy_file(verify, cache_temp)
+             raise '新缩略图缓存白底校正失败。' unless normalize_soft_thumbnail_white_background!(cache_temp)
+             raise '新缩略图缓存仍为灰暗背景。' unless soft_thumbnail_white_background?(cache_temp)
+-            linkhub_mv(cache_temp, cache_thumbnail_path)
+-            record_soft_thumbnail!(path, cache_thumbnail_path, root, defer: defer_thumbnail_meta)
++            # v0.13.7.10：四角白只能证明背景正确，不能证明家具还在；空白图不覆盖旧缓存。
++            # 此时源 SKP 已写入并验证成功，不能为了缓存图质量而回滚源文件，只跳过缓存写入。
++            if soft_thumbnail_view_content_valid?(cache_temp)
++              linkhub_mv(cache_temp, cache_thumbnail_path)
++              record_soft_thumbnail!(path, cache_thumbnail_path, root, defer: defer_thumbnail_meta)
++            else
++              log("新缩略图缓存没有检测到模型主体（空白图），已保留旧缓存图：#{path}")
++            end
+           end
+         rescue StandardError
+           if File.file?(path) && defined?(candidate_content_signature) && !candidate_content_signature.to_s.empty?
+@@ -24891,9 +24942,12 @@
+         log("源模型没有内置缩略图，已跳过后台提取；可在卡片右上角点击刷新生成：#{path}")
+         return false
+       end
++      # v0.13.7.10：先在临时文件上完成白底校正和主体验收，再替换正式缩略图。
++      # 旧版先覆盖再校正，校正把浅色家具抹白时，正式缩略图已经被白图替换。
++      raise '源模型缩略图白底校正失败。' unless normalize_soft_thumbnail_white_background!(temp)
++      raise '源模型缩略图仍为灰暗背景。' unless soft_thumbnail_white_background?(temp)
++      raise '源模型内置缩略图没有检测到模型主体（空白图），已保留旧图。' unless soft_thumbnail_view_content_valid?(temp)
+       linkhub_mv(temp, thumb)
+-      raise '源模型缩略图白底校正失败。' unless normalize_soft_thumbnail_white_background!(thumb)
+-      raise '源模型缩略图仍为灰暗背景。' unless soft_thumbnail_white_background?(thumb)
+       record_soft_thumbnail!(path, thumb, root)
+       true
+     rescue StandardError => e
+diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
+--- a/su_linkhub/thumbnail_views.rb	2026-10-13 10:16:46.000000000 +0000
++++ b/su_linkhub/thumbnail_views.rb	2026-10-14 03:43:04.000000000 +0000
+@@ -209,6 +209,69 @@
+         File.delete(temp) if defined?(temp) && temp && File.file?(temp)
+       end
+ 
++      # v0.13.7.10：View#write_image 截图失败（拍空/全白）时的备用渲染。
++      # ComponentDefinition#thumbnail_camera= + refresh_thumbnail + save_thumbnail 由 SketchUp
++      # 在组件自己的坐标系里离屏绘制，不经过当前视口：不受项目根实体隐藏、视口裁剪面、
++      # 远端/近原点隔离、当前相机和视口刷新时机影响。这与 SKP 内置缩略图是同一条渲染路径
++      # （用户在 SketchUp 组件浏览器里看到的正常缩略图）。相机使用组件局部坐标，必须传入
++      # 未平移的相机。外层 operation 最终 abort，thumbnail_camera 的临时修改一并回滚。
++      def soft_thumbnail_definition_fallback_supported?(definition)
++        definition \
++          && definition.valid? \
++          && definition.respond_to?(:thumbnail_camera=) \
++          && definition.respond_to?(:refresh_thumbnail) \
++          && definition.respond_to?(:save_thumbnail)
++      rescue StandardError
++        false
++      end
++
++      def soft_thumbnail_write_definition_fallback!(definition, camera, paths)
++        raise '当前 SketchUp 不支持组件缩略图备用渲染。' unless soft_thumbnail_definition_fallback_supported?(definition)
++        first = Array(paths).first.to_s
++        raise '缩略图备用渲染缺少输出路径。' if first.empty?
++        temp = "#{first}.defthumb-#{Process.pid}-#{SecureRandom.hex(4)}.png"
++        definition.thumbnail_camera = camera
++        definition.refresh_thumbnail
++        ok = definition.save_thumbnail(temp)
++        raise '组件缩略图备用渲染未能写出。' unless ok && File.file?(temp) && File.size(temp).positive?
++        raise '组件缩略图备用渲染同样为空白。' unless soft_thumbnail_view_content_valid?(temp)
++        Array(paths).each do |path|
++          FileUtils.mkdir_p(File.dirname(path))
++          staged = "#{path}.stage-#{Process.pid}-#{SecureRandom.hex(4)}.png"
++          FileUtils.cp(temp, staged)
++          linkhub_mv(staged, path)
++        end
++        true
++      ensure
++        File.delete(temp) if defined?(temp) && temp && File.file?(temp)
++      end
++
++      # 把拍空的截图和当时的关键状态留在本机临时目录，便于下次对照日志定位（最多保留 20 份）。
++      def preserve_soft_thumbnail_blank_diagnostics!(model, source_path, view, values, shift, local_stage, error)
++        dir = File.join(TEMP_VISUAL_PROXY_DIR, 'thumbnail_blank_diagnostics')
++        FileUtils.mkdir_p(dir)
++        stamp = "#{Time.now.strftime('%Y%m%d-%H%M%S')}-#{SecureRandom.hex(3)}"
++        bounds = model.bounds rescue nil
++        info = {
++          source_path: source_path.to_s, view: view.to_s, error: error.to_s,
++          definition_bounds: Array(values).map(&:to_f), shift: shift ? shift.to_a : nil,
++          local_stage: local_stage ? true : false,
++          active_path_depth: Array(model.active_path).length,
++          root_entities: (model.entities.length rescue nil),
++          model_bounds: bounds ? [bounds.min.to_a, bounds.max.to_a] : nil,
++          viewport: [(model.active_view.vpwidth rescue nil), (model.active_view.vpheight rescue nil)],
++          sketchup_version: (Sketchup.version rescue '')
++        }
++        File.write(File.join(dir, "#{stamp}.json"), JSON.pretty_generate(info))
++        old = Dir.glob(File.join(dir, '*.json')).sort
++        old.first([old.length - 20, 0].max).each { |file| File.delete(file) rescue nil }
++        log("[thumbview] 截图拍空：#{File.basename(source_path.to_s)} view=#{view} local_stage=#{info[:local_stage]} " \
++            "shift=#{info[:shift].inspect} root=#{info[:root_entities]} 诊断：#{File.join(dir, "#{stamp}.json")}")
++        true
++      rescue StandardError
++        false
++      end
++
+       # 只在一个可回滚 operation 内临时放置截图实例；结束时 abort，模型、样式、选择、相机全部恢复。
+       def render_soft_thumbnail_view!(model, source_path, view, root = soft_library_root, local_stage: false)
+         with_soft_commit_world_context(model) do
+@@ -239,12 +302,19 @@
+           FileUtils.cp(source_path, temp_source)
+           definition = load_definition_compat(model.definitions, temp_source)
+           raise '缩略图模型定义载入失败。' unless definition && definition.valid?
++          if definition_ids.include?(definition.object_id)
++            # SketchUp 按 definition GUID 去重：临时路径并不能保证载入新文件。记录下来便于排查“旧几何”。
++            log("[thumbview] 载入返回了项目中已有的同 GUID 定义：#{File.basename(source_path.to_s)}（截图使用该定义）")
++          end
+           values = soft_definition_bounds_values(definition)
+           raise '模型没有可用于缩略图的有效几何。' unless soft_bounds_values_valid?(values)
+           face_camera = soft_definition_face_camera?(definition)
+           view = 'front' if face_camera
+           model.layers.each { |layer| layer.visible = true rescue nil }
+-          shift = local_stage ? nil : soft_visual_proxy_root_distant_capture_shift(model, values)
++          # v0.13.7.10：六面代理已在本会话检测到“远端隔离拍空”时，缩略图也不再用远端法。
++          distant_disabled = respond_to?(:soft_visual_proxy_root_distant_capture_disabled?) &&
++                             soft_visual_proxy_root_distant_capture_disabled?
++          shift = (local_stage || distant_disabled) ? nil : soft_visual_proxy_root_distant_capture_shift(model, values)
+           if shift
+             insert_transform = Geom::Transformation.translation(shift)
+           else
+@@ -258,19 +328,26 @@
+             end
+           end
+           model.entities.add_instance(definition, insert_transform)
+-          camera, width_px, height_px = soft_thumbnail_view_camera(values, view, SOFT_THUMBNAIL_VIEW_SIZE)
+-          camera = soft_visual_proxy_shift_camera(camera, shift) if shift
++          local_camera, width_px, height_px = soft_thumbnail_view_camera(values, view, SOFT_THUMBNAIL_VIEW_SIZE)
++          camera = shift ? soft_visual_proxy_shift_camera(local_camera, shift) : local_camera
++          normal_path = soft_thumbnail_view_path(source_path, view, root)
++          hd_path = soft_thumbnail_view_path(source_path, view, root, hd: true)
+           with_soft_bright_thumbnail_style(model, refresh_view: false) do
+             soft_visual_proxy_set_background!(model, Sketchup::Color.new(255, 255, 255))
+             active_view = model.active_view
+-            active_view.camera = camera
+-            soft_thumbnail_write_view_image!(active_view, soft_thumbnail_view_path(source_path, view, root), width_px, height_px)
+-            scale = SOFT_THUMBNAIL_VIEW_HD_SIZE.to_f / SOFT_THUMBNAIL_VIEW_SIZE
+-            active_view.camera = camera
+-            soft_thumbnail_write_view_image!(
+-              active_view, soft_thumbnail_view_path(source_path, view, root, hd: true),
+-              (width_px * scale).round, (height_px * scale).round
+-            )
++            begin
++              active_view.camera = camera
++              soft_thumbnail_write_view_image!(active_view, normal_path, width_px, height_px)
++              scale = SOFT_THUMBNAIL_VIEW_HD_SIZE.to_f / SOFT_THUMBNAIL_VIEW_SIZE
++              active_view.camera = camera
++              soft_thumbnail_write_view_image!(active_view, hd_path, (width_px * scale).round, (height_px * scale).round)
++            rescue StandardError => e
++              # 视口截图拍空/全白：改用 SketchUp 组件缩略图离屏渲染（不依赖视口状态）。
++              raise unless soft_thumbnail_definition_fallback_supported?(definition)
++              preserve_soft_thumbnail_blank_diagnostics!(model, source_path, view, values, shift, local_stage, e.message)
++              soft_thumbnail_write_definition_fallback!(definition, local_camera, [normal_path, hd_path])
++              log("[thumbview] 视口截图失败，已改用组件缩略图渲染：#{File.basename(source_path.to_s)} view=#{view}")
++            end
+           end
+         ensure
+           visibility_rows.reverse_each do |entity, hidden|
+@@ -418,6 +495,14 @@
+                 job[:notify] = false
+               else
+                 thumb = soft_model_thumbnail_path(item['path'].to_s, soft_library_root)
++                # v0.13.7.10：旧版（v0.13.7.3–v0.13.7.8）没有内容验收，<id>.png 可能早已被白图覆盖。
++                # 两次生成都失败时，若现有标准缩略图本身也是空白，改用源 SKP 内置缩略图恢复，
++                # 而不是把旧白图当作“旧缩略图”重新推送。
++                unless File.file?(thumb) && soft_thumbnail_view_content_valid?(thumb)
++                  if extract_soft_model_embedded_thumbnail(item['path'].to_s, thumb, soft_library_root)
++                    item = item.merge('thumbnail_url' => '')
++                  end
++                end
+                 old_url = item['thumbnail_url'].to_s
+                 old_url = soft_thumbnail_url(thumb) if old_url.empty? && File.file?(thumb)
+                 old_url = soft_thumbnail_cache_busted_url(old_url)
+diff -ruN a/su_linkhub.rb b/su_linkhub.rb
+--- a/su_linkhub.rb	2026-10-13 10:11:30.000000000 +0000
++++ b/su_linkhub.rb	2026-10-14 03:23:35.000000000 +0000
+@@ -8,7 +8,7 @@
+   # 会导致常量和启动方法互相覆盖，并把 runtime.rb 错指到其他插件目录。
+   module SULinkHubMultiSpace
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.9' unless const_defined?(:EXTENSION_VERSION, false)
++    EXTENSION_VERSION = '0.13.7.10' unless const_defined?(:EXTENSION_VERSION, false)
+ 
+     unless file_loaded?(__FILE__)
+       extension = SketchupExtension.new(EXTENSION_NAME, 'su_linkhub/main')

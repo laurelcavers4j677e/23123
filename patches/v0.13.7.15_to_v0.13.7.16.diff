@@ -1,0 +1,653 @@
+diff -ruN a/CHANGELOG_v0.13.7.16.txt b/CHANGELOG_v0.13.7.16.txt
+--- a/CHANGELOG_v0.13.7.16.txt	1970-01-01 00:00:00.000000000 +0000
++++ b/CHANGELOG_v0.13.7.16.txt	2026-10-16 06:49:30.018779621 +0000
+@@ -0,0 +1,28 @@
++SU LinkHub v0.13.7.16
++
++在 v0.13.7.15 基础上：界面与分组改进。
++
++一、按钮与分组默认展开
++- 顶部工具条的按钮组（模型库组、刷新组、代理/真模型切换）默认全部展开，不再需要鼠标靠近才展开。
++- 空间组、建筑组默认展开。旧版默认收纳；升级后每个项目执行一次“全部展开”，之后你自己的折叠/展开选择照常保存。
++
++二、空间/建筑卡片
++- 已载入但隐藏的卡片：整张卡片变灰，名称和状态文字变灰，状态前加“已隐藏”，一眼区分显示与隐藏。
++  隐藏的空间组也变灰。
++- 待载入的联动空间改为橙色卡片，状态显示“待载入 · 联动于（来源）”；已载入的联动空间保持蓝色。
++- 提醒类按钮常显示：载入、更新、命名、发布、重试、恢复、继续。看到按钮就知道这个空间要处理。
++  其他操作按钮（修改、显示/隐藏、卸载、解除占用等）保持鼠标靠近才显示。
++
++三、采购清单空间标签按楼层上色
++- 同一楼层同一色系，楼层内按顺序改变饱和度和明度；不同楼层不同色系。
++- 楼层优先取空间所在的空间组名（2F、3F…），没有分组时从名称识别“一层/二层/三层/顶层/2F/B1”等关键词。
++- 标签按楼层排列（同层相邻）；识别不到楼层的空间排在最后，保持原样式。
++
++四、联动空间命名后自动归组
++- 复制联动空间并确认名称时，如果名称里没有写明分组，按名称自动选组：
++  楼层关键词与组名一致（如“三层…”→“3F”组）、组内同楼层空间数量、名称相似度，得分最高的组。
++  都不明确时沿用来源空间的组（与旧版相同）。
++- 在组内按名称自然顺序插入（三层标间1、2、3、4…），不再固定排在组首。
++- 完成提示会写明“已归入某某组”。仍可在名称里写“3F:三层标间1”手动指定分组。
++
++其余同 v0.13.7.15（见 CHANGELOG_v0.13.7.15.txt）。
+diff -ruN a/su_linkhub/README.txt b/su_linkhub/README.txt
+--- a/su_linkhub/README.txt	2026-10-16 06:12:27.692413824 +0000
++++ b/su_linkhub/README.txt	2026-10-16 06:49:30.016625793 +0000
+@@ -1,6 +1,6 @@
+-SU LinkHub v0.13.7.15
++SU LinkHub v0.13.7.16
+ 
+-本版新增（详见 CHANGELOG_v0.13.7.15.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
++本版新增（详见 CHANGELOG_v0.13.7.16.txt / CHANGELOG_v0.13.7.9.txt / CHANGELOG_v0.13.7.8.txt / CHANGELOG_v0.13.7.7.txt / CHANGELOG_v0.13.7.6.txt / CHANGELOG_v0.13.7.5.txt / CHANGELOG_v0.13.7.4.txt / CHANGELOG_v0.13.7.3.txt / CHANGELOG_v0.13.7.2.txt / CHANGELOG_v0.13.7.1.txt / CHANGELOG_v0.13.6.192.txt / CHANGELOG_v0.13.6.191.txt / CHANGELOG_v0.13.6.190.txt）：
+ - 浅色家具缩略图：米白/浅灰材质（如罗马帘、纱帘）入库或刷新后不再变成白图；缩略图带细轮廓线。
+ - 缩略图刷新：严格检测模型主体；白图不会覆盖旧图或误报成功，并关闭项目剖切影响。
+ - 家具选择：自动清理旧版遗留的受管家具锁定，家具保持可选择；单件编辑继续安全隔离。
+@@ -17,7 +17,7 @@
+ - 发布/入库不再因个别家具缺代理而整单失败：缺代理家具以真模型随包发布，代理后台补齐。
+ - 来源同步不再把正在调整的联动副本弹回；发布前复核协同组件签名，避免“显示最新但内容旧”。
+ 
+-日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.15.log
++日志目录：%TEMP%\SU_LinkHub\logs\    主日志：SU_LinkHub_v0.13.7.16.log
+ 诊断输出：%TEMP%\SU_LinkHub\diagnostics\
+ 
+ ----------------------------------------------------------------
+diff -ruN a/su_linkhub/constants.rb b/su_linkhub/constants.rb
+--- a/su_linkhub/constants.rb	2026-10-16 06:12:27.692187202 +0000
++++ b/su_linkhub/constants.rb	2026-10-16 06:49:30.016390118 +0000
+@@ -4,7 +4,7 @@
+   module SULinkHubMultiSpace
+     module Runtime
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.15'.freeze
++    EXTENSION_VERSION = '0.13.7.16'.freeze
+     # 从这一版开始，空间编辑域进一步收口：整个 SKP 根层级不能作为空间修改容器，
+     # 空间内部原生锁定会被自动撤销；同时继承 13.5.5 的软装落位、冲突阻止和安全快照。
+     # 因此低于 0.13.6.18 的协作者仍可能绕过“编辑前必须最新”和强制恢复隔离规则，当前版本会明确提示团队统一升级。
+@@ -31,16 +31,16 @@
+     rescue StandardError
+       nil
+     end
+-    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.15.log').freeze
+-    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.15.log').freeze
+-    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.15.log').freeze
++    LOG_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_v0.13.7.16.log').freeze
++    SCHEDULE_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_清单诊断_v0.13.7.16.log').freeze
++    SUBMIT_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_提交诊断_v0.13.7.16.log').freeze
+     BACKGROUND_PUBLISH_QUEUE_PATH = File.join(TEMP_STATE_DIR, 'SU_LinkHub_后台发布队列_v0.13.6.100.json').freeze
+     BACKGROUND_PUBLISH_HISTORY_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布历史.jsonl').freeze
+     BACKGROUND_PUBLISH_LAST_STAGE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布最后阶段.txt').freeze
+-    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.15.log').freeze
++    BACKGROUND_PUBLISH_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_后台发布诊断_v0.13.7.16.log').freeze
+     SPACE_PUBLISH_QUEUE_POLL_INTERVAL = 0.12
+     SPACE_PUBLISH_QUEUE_MAX_HISTORY = 12
+-    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.15.log').freeze
++    TASK_CENTER_TRACE_PATH = File.join(TEMP_LOG_DIR, 'SU_LinkHub_任务队列诊断_v0.13.7.16.log').freeze
+     TASK_CENTER_MAX_HISTORY = 18
+     # Ruby 后台线程只处理不触碰 SketchUp 模型/视图 API 的文件任务。两个 worker
+     # 可以让目录扫描、缓存落盘与 Excel 导出互不阻塞，同时避免机械盘/NAS 上过多
+diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
+--- a/su_linkhub/main.rb	2026-10-16 06:12:27.693548434 +0000
++++ b/su_linkhub/main.rb	2026-10-16 06:49:30.017806909 +0000
+@@ -25,6 +25,7 @@
+       const_defined?(:Runtime, false) ? const_get(:Runtime, false) : nil
+     end
+ 
++    # v0.13.7.16：工具条按钮组默认展开；空间组默认展开；隐藏卡片变灰；待载入联动空间橙色并常显示载入按钮；提醒类按钮常显示；清单空间标签按楼层上色；联动空间命名后自动归组并按名称排序。
+     # v0.13.7.15：家具更新统一任务（源模型 → 6 张六面 → 2 张轴测，一条总进度）；立即/稍后更新结果一致；缩略图按源签名判新；改轴漏检补测；队列/定时器/协作锁/操作回滚可靠性修复；结构审计提速。
+     # v0.13.7.14：软装模型库“请先点击修改”报错改为写明具体原因；空间根组件消失时立即警告并提示撤销；记录撤销/重做日志。
+     # v0.13.7.13：朝向相机组件入库尺寸复核与测量改用组件自身轴向尺寸，不再使用 SketchUp 对朝向相机子组件报的外包盒（现场日志确认）。
+diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
+--- a/su_linkhub/runtime.rb	2026-10-16 06:17:31.623314967 +0000
++++ b/su_linkhub/runtime.rb	2026-10-16 06:47:19.848788711 +0000
+@@ -8224,7 +8224,7 @@
+       return existing['id'].to_s if existing
+       group = {
+         'id' => SecureRandom.uuid, 'name' => name, 'order' => state['space_groups'].length,
+-        'collapsed' => true, 'visibility_suspended' => false, 'visibility_restore_ids' => [],
++        'collapsed' => false, 'visibility_suspended' => false, 'visibility_restore_ids' => [],
+         'collection_visibility' => {}
+       }
+       state['space_groups'] << group
+@@ -8239,7 +8239,7 @@
+       return existing['id'].to_s if existing
+       group = {
+         'id' => SecureRandom.uuid, 'name' => name, 'order' => state['architecture_groups'].length,
+-        'collapsed' => true, 'visibility_suspended' => false, 'visibility_restore_ids' => []
++        'collapsed' => false, 'visibility_suspended' => false, 'visibility_restore_ids' => []
+       }
+       state['architecture_groups'] << group
+       group['id'].to_s
+@@ -8418,6 +8418,14 @@
+         link['status'] = '已并入硬装／软装空间模型'
+       end
+ 
++      # v0.13.7.16：空间组/建筑组默认全部展开。旧版默认收纳，已保存的“收纳”多数只是旧默认值，
++      # 这里对每个项目执行一次：全部改为展开；之后用户自己的折叠/展开选择照常保存。
++      expand_groups_once = state['drawer_groups_default_expanded_v16'] != true
++      if expand_groups_once
++        Array(state['space_groups']).each { |group| group['collapsed'] = false if group.is_a?(Hash) }
++        Array(state['architecture_groups']).each { |group| group['collapsed'] = false if group.is_a?(Hash) }
++        state['drawer_groups_default_expanded_v16'] = true
++      end
+       raw_groups = Array(state['space_groups'])
+       seen_group_ids = {}
+       groups = raw_groups.each_with_index.map do |raw, index|
+@@ -8431,7 +8439,7 @@
+           'id' => id,
+           'name' => name,
+           'order' => group['order'].to_i,
+-          'collapsed' => group.key?('collapsed') ? !!group['collapsed'] : true,
++          'collapsed' => group.key?('collapsed') ? !!group['collapsed'] : false,
+           # 组显隐属于本机浏览状态：隐藏时只记录当时真正可见的成员，
+           # 再次显示只恢复这些成员，不会改动原本单独隐藏的空间。
+           'visibility_suspended' => !!group['visibility_suspended'],
+@@ -9165,7 +9173,14 @@
+       item = default_space_model(next_space_number!(state), name, source['model_path'])
+       item['id'] = temp_id
+       item['collection_key'] = collection_key
+-      item['group_id'] = parsed['group_name'].to_s.empty? ? source['group_id'].to_s : ensure_named_space_group!(state, parsed['group_name'])
++      # v0.13.7.16：没有写明分组时，按名称自动归组：楼层关键词（三层/3F）与组名、组内空间名称
++      # 重复度最高的那一组；都不明确时才沿用来源空间的组。组内按名称自然顺序插入。
++      item['group_id'] = if parsed['group_name'].to_s.empty?
++                           best_linked_space_group_id(state, name, collection_key, source['group_id'].to_s)
++                         else
++                           ensure_named_space_group!(state, parsed['group_name'])
++                         end
++      reordered_space_ids = insert_space_into_group_by_name!(state, item)
+       item['linked_source_space_id'] = source['id'].to_s
+       item['linked_source_name'] = source['name'].to_s
+       item['linked_transform'] = entity.transformation.to_a.map(&:to_f)
+@@ -9187,7 +9202,7 @@
+       state['space_models'] << item
+       normalize_space_models_state!(state, model)
+       save_state(state, model, write_manifest: false)
+-      write_space_models_manifest!(state, model, preserve_remote_layout: true, local_space_ids: [item['id']])
++      write_space_models_manifest!(state, model, preserve_remote_layout: true, local_space_ids: ([item['id']] + Array(reordered_space_ids)).uniq)
+       model.commit_operation
+       operation_open = false
+       invalidate_managed_root_index(model, reason: 'linked_space_pending_finish')
+@@ -9198,7 +9213,8 @@
+       refresh_workspace_toolbar(model, detailed: true)
+       remaining = pending_linked_space_clones(model).length
+       suffix = remaining.positive? ? "；还有 #{remaining} 个待登记副本，继续选中后点顶部对勾" : ''
+-      show_status("已登记联动空间 #{item['number']}:#{item['name']}，联动于（#{source['name']}）#{suffix}。", 'success')
++      group_label = Array(state['space_groups']).find { |group| group['id'].to_s == item['group_id'].to_s }
++      show_status("已登记联动空间 #{item['number']}:#{item['name']}，联动于（#{source['name']}）#{group_label ? "，已归入“#{group_label['name']}”组" : ''}#{suffix}。", 'success')
+       true
+     rescue StandardError
+       model.abort_operation rescue nil if defined?(operation_open) && operation_open
+@@ -9320,6 +9336,110 @@
+       false
+     end
+ 
++    # v0.13.7.16：从名称识别楼层：“三层/3F/3层/3楼”→ 3F，“B1/负一层”→ B1，“顶层/屋顶”→ 顶层。识别不到返回 ''。
++    def space_name_floor_key(text)
++      value = text.to_s
++      return '' if value.empty?
++      cn = lambda do |token|
++        return token.to_i if token =~ /\A\d+\z/
++        digits = { '一' => 1, '二' => 2, '两' => 2, '三' => 3, '四' => 4, '五' => 5, '六' => 6, '七' => 7, '八' => 8, '九' => 9 }
++        total = 0
++        current = 0
++        token.each_char do |ch|
++          if ch == '十'
++            total += (current.zero? ? 1 : current) * 10
++            current = 0
++          elsif digits[ch]
++            current = digits[ch]
++          end
++        end
++        total + current
++      end
++      if (m = value.match(/(?:\A|[^A-Za-z])(?:B|b|负)\s*(\d+|[一二三四五六七八九十]+)\s*(?:F|f|层|楼)?/))
++        return "B#{cn.call(m[1])}"
++      end
++      m = value.match(/(\d+)\s*(?:F|f|L|l|层|楼)/) || value.match(/([一二两三四五六七八九十]+)\s*(?:层|楼)/)
++      if m
++        number = cn.call(m[1])
++        return "#{number}F" if number.positive?
++      end
++      return '顶层' if value =~ /顶层|屋顶|天台/
++      ''
++    rescue StandardError
++      ''
++    end
++
++    def space_name_similarity(left, right)
++      grams = lambda do |text|
++        chars = text.to_s.gsub(/[\s:：·\-_（）()]/, '').chars
++        chars.length < 2 ? chars : chars.each_cons(2).map(&:join)
++      end
++      a = grams.call(left).uniq
++      b = grams.call(right).uniq
++      return 0.0 if a.empty? || b.empty?
++      (a & b).length.to_f / (a | b).length
++    rescue StandardError
++      0.0
++    end
++
++    # 联动空间自动归组：楼层关键词与组名一致 +3；组内每个同楼层空间 +1；
++    # 与组内最像的名称相似度 ×2；相似度 ≥0.5 的成员每个 +0.25。总分不足 1.5 时沿用来源空间的组。
++    def best_linked_space_group_id(state, name, collection_key, fallback_group_id = '')
++      groups = Array(state['space_groups']).select { |group| group.is_a?(Hash) && !group['id'].to_s.empty? }
++      return fallback_group_id.to_s if groups.empty?
++      floor = space_name_floor_key(name)
++      scored = groups.map do |group|
++        members = Array(state['space_models']).select do |space|
++          space['group_id'].to_s == group['id'].to_s && space_record_collection_key(space) == collection_key
++        end
++        score = 0.0
++        score += 3.0 if !floor.empty? && space_name_floor_key(group['name']) == floor
++        score += members.count { |space| !floor.empty? && space_name_floor_key(space['name']) == floor } * 1.0
++        similarities = members.map { |space| space_name_similarity(name, space['name']) }
++        score += similarities.max.to_f * 2.0
++        score += similarities.count { |value| value >= 0.5 } * 0.25
++        [group['id'].to_s, score]
++      end
++      best_id, best_score = scored.max_by { |_id, score| score }
++      chosen = best_score.to_f >= 1.5 ? best_id : fallback_group_id.to_s
++      chosen_name = (groups.find { |group| group['id'].to_s == chosen } || {})['name']
++      log("联动空间自动归组：#{name} → #{chosen_name}（楼层 #{floor.empty? ? '未识别' : floor}，得分 #{best_score.to_f.round(2)}）")
++      chosen
++    rescue StandardError => e
++      log_exception('联动空间自动归组失败', e)
++      fallback_group_id.to_s
++    end
++
++    def natural_space_name_key(name)
++      name.to_s.scan(/\d+|\D+/).map { |part| part =~ /\A\d+\z/ ? [0, part.to_i, ''] : [1, 0, part] }
++    end
++
++    # 把新空间按名称自然顺序插入所在组，返回 group_order 被调整的其他空间 id。
++    def insert_space_into_group_by_name!(state, item)
++      group_id = item['group_id'].to_s
++      return [] if group_id.empty?
++      members = Array(state['space_models']).select { |space| space['group_id'].to_s == group_id && space['id'].to_s != item['id'].to_s }
++      members = members.sort_by { |space| [space['group_order'].to_i, space['number'].to_i] }
++      index = members.index { |space| (natural_space_name_key(space['name']) <=> natural_space_name_key(item['name'])).to_i.positive? }
++      if index.nil?
++        item['group_order'] = members.empty? ? 0 : members.map { |space| space['group_order'].to_i }.max + 1
++        return []
++      end
++      changed = []
++      members.dup.insert(index, item).each_with_index do |space, order|
++        if space.equal?(item)
++          space['group_order'] = order
++        elsif space['group_order'].to_i != order
++          space['group_order'] = order
++          changed << space['id'].to_s
++        end
++      end
++      changed
++    rescue StandardError => e
++      log_exception('联动空间组内排序失败', e)
++      []
++    end
++
+     def suggested_linked_space_name(state, source)
+       base = "#{source['name']} 副本"
+       candidate = base
+@@ -9438,7 +9558,14 @@
+       item = default_space_model(next_space_number!(state), name, source['model_path'])
+       item['id'] = record[:temp_id].to_s
+       item['collection_key'] = collection_key
+-      item['group_id'] = parsed['group_name'].to_s.empty? ? source['group_id'].to_s : ensure_named_space_group!(state, parsed['group_name'])
++      # v0.13.7.16：没有写明分组时，按名称自动归组：楼层关键词（三层/3F）与组名、组内空间名称
++      # 重复度最高的那一组；都不明确时才沿用来源空间的组。组内按名称自然顺序插入。
++      item['group_id'] = if parsed['group_name'].to_s.empty?
++                           best_linked_space_group_id(state, name, collection_key, source['group_id'].to_s)
++                         else
++                           ensure_named_space_group!(state, parsed['group_name'])
++                         end
++      reordered_space_ids = insert_space_into_group_by_name!(state, item)
+       item['linked_source_space_id'] = source['id'].to_s
+       item['linked_source_name'] = source['name'].to_s
+       item['linked_transform'] = entity.transformation.to_a.map(&:to_f)
+@@ -9459,7 +9586,7 @@
+       state['space_models'] << item
+       normalize_space_models_state!(state, model)
+       save_state(state, model, write_manifest: false)
+-      write_space_models_manifest!(state, model, preserve_remote_layout: true, local_space_ids: [item['id']])
++      write_space_models_manifest!(state, model, preserve_remote_layout: true, local_space_ids: ([item['id']] + Array(reordered_space_ids)).uniq)
+       model.commit_operation
+       operation_open = false
+       @linked_space_copy_placements.delete(model.object_id)
+@@ -9469,7 +9596,8 @@
+       mark_soft_measurement_dirty(model)
+       refresh_dialog
+       refresh_workspace_toolbar(model, detailed: true)
+-      show_status("已建立联动空间 #{item['number']}:#{item['name']}，联动于（#{source['name']}）。", 'success')
++      group_label = Array(state['space_groups']).find { |group| group['id'].to_s == item['group_id'].to_s }
++      show_status("已建立联动空间 #{item['number']}:#{item['name']}，联动于（#{source['name']}）#{group_label ? "，已归入“#{group_label['name']}”组" : ''}。", 'success')
+       true
+     rescue StandardError
+       model.abort_operation rescue nil if defined?(operation_open) && operation_open
+@@ -9706,7 +9834,7 @@
+           'id' => id,
+           'name' => raw['name'].to_s,
+           'order' => raw['order'].to_i,
+-          'collapsed' => pref.key?('collapsed') ? !!pref['collapsed'] : true,
++          'collapsed' => pref.key?('collapsed') ? !!pref['collapsed'] : false,
+           'visibility_suspended' => !!pref['visibility_suspended'],
+           'visibility_restore_ids' => Array(pref['visibility_restore_ids']).dup,
+           'collection_visibility' => pref['collection_visibility'].is_a?(Hash) ? deep_dup_runtime_value(pref['collection_visibility']) : {}
+@@ -9921,7 +10049,7 @@
+           'order' => raw['order'].to_i,
+           # 折叠与组显隐快照属于每台电脑的浏览偏好，不写入共享清单，
+           # 避免一名成员展开、隐藏组时影响其他协作者。
+-          'collapsed' => local_group_preferences.key?(id) ? !!local_group_preferences[id]['collapsed'] : true,
++          'collapsed' => local_group_preferences.key?(id) ? !!local_group_preferences[id]['collapsed'] : false,
+           'visibility_suspended' => local_group_preferences.key?(id) ? !!local_group_preferences[id]['visibility_suspended'] : false,
+           'visibility_restore_ids' => local_group_preferences.key?(id) ? Array(local_group_preferences[id]['visibility_restore_ids']).dup : [],
+           'collection_visibility' => local_group_preferences.key?(id) && local_group_preferences[id]['collection_visibility'].is_a?(Hash) ? deep_dup_runtime_value(local_group_preferences[id]['collection_visibility']) : {}
+@@ -20369,7 +20497,7 @@
+         group['name'] = normalize_space_name(group['name'])
+         group['name'] = "建筑组#{index + 1}" if group['name'].empty?
+         group['order'] = group['order'].to_i
+-        group['collapsed'] = group.key?('collapsed') ? !!group['collapsed'] : true
++        group['collapsed'] = group.key?('collapsed') ? !!group['collapsed'] : false
+         group['visibility_suspended'] = !!group['visibility_suspended']
+         group['visibility_restore_ids'] = Array(group['visibility_restore_ids']).map(&:to_s).reject(&:empty?).uniq
+         group
+@@ -20718,7 +20846,7 @@
+           'id' => raw['id'].to_s,
+           'name' => normalize_space_name(raw['name']),
+           'order' => raw['order'].to_i,
+-          'collapsed' => local.key?('collapsed') ? !!local['collapsed'] : true,
++          'collapsed' => local.key?('collapsed') ? !!local['collapsed'] : false,
+           'visibility_suspended' => !!local['visibility_suspended'],
+           'visibility_restore_ids' => Array(local['visibility_restore_ids']).map(&:to_s)
+         }
+@@ -20755,7 +20883,7 @@
+             'id' => raw['id'].to_s,
+             'name' => normalize_space_name(raw['name']),
+             'order' => raw['order'].to_i,
+-            'collapsed' => pref.key?('collapsed') ? !!pref['collapsed'] : true,
++            'collapsed' => pref.key?('collapsed') ? !!pref['collapsed'] : false,
+             'visibility_suspended' => !!pref['visibility_suspended'],
+             'visibility_restore_ids' => Array(pref['visibility_restore_ids']).map(&:to_s)
+           }
+@@ -30703,6 +30831,24 @@
+       false
+     end
+ 
++    # v0.13.7.16：清单空间标签按楼层上色。优先使用空间所在的空间组（例如 2F、3F），
++    # 网页端在没有组时再从名称里识别“二层/三层/顶层”等关键词。
++    def soft_schedule_space_group_fields(item, state = nil)
++      group_id = item.is_a?(Hash) ? item['group_id'].to_s : ''
++      group = nil
++      if !group_id.empty? && state.is_a?(Hash)
++        group = Array(state['space_groups']).find { |candidate| candidate.is_a?(Hash) && candidate['id'].to_s == group_id }
++      end
++      {
++        'group_id' => group_id,
++        'group_name' => group ? group['name'].to_s : '',
++        'group_order' => group ? group['order'].to_i : 9_999,
++        'space_name' => item.is_a?(Hash) ? item['name'].to_s : ''
++      }
++    rescue StandardError
++      { 'group_id' => '', 'group_name' => '', 'group_order' => 9_999, 'space_name' => '' }
++    end
++
+     def soft_project_schedule_data(model = Sketchup.active_model, context: nil, fast_local: false, progress: nil)
+       soft_schedule_trace("PROJECT DATA BEGIN fast_local=#{fast_local}", model)
+       # 每个空间只统计一次，项目总表直接合并这些结果。旧版先生成空间表，随后
+@@ -30742,7 +30888,7 @@
+           'editing' => record[:editing] == true,
+           'status' => record[:reason].to_s,
+           'rows' => rows
+-        }
++        }.merge(soft_schedule_space_group_fields(item, state))
+       end
+       soft_schedule_trace('PROJECT DATA before photo_manifest', model)
+       photo_manifest = read_soft_schedule_photo_manifest(model, reuse: fast_local)
+@@ -31577,7 +31723,7 @@
+               'id' => item['id'].to_s, 'label' => label,
+               'loaded' => !!(entity && entity.valid?), 'editing' => record[:editing] == true,
+               'status' => record[:reason].to_s, 'rows' => rows
+-            }
++            }.merge(soft_schedule_space_group_fields(item, (cached_project_state_hot_readonly(model) rescue nil)))
+             active[:index] += 1
+             soft_schedule_trace("PROGRESSIVE SPACE #{active[:index]}/#{active[:included].length} #{label} rows=#{rows.length} elapsed_ms=#{elapsed_ms(space_started)}", model)
+             log_slow_operation('采购清单单空间统计', space_started, 3000.0, "#{label} · #{rows.length} 行")
+@@ -37882,7 +38028,13 @@
+         linked_source = linked_space ? canonical_space_record(state, space) : nil
+         linked_source_name = linked_source ? linked_source['name'].to_s : space['linked_source_name'].to_s
+         display_status = if linked_space
+-                           linked_source_name.empty? ? '联动来源已缺失' : "联动于（#{linked_source_name}）"
++                           if linked_source_name.empty?
++                             '联动来源已缺失'
++                           elsif !loaded
++                             "待载入 · 联动于（#{linked_source_name}）"
++                           else
++                             "联动于（#{linked_source_name}）"
++                           end
+                          elsif publish_warning
+                            space['publish_pending'] ? '待发布' : '待发布 · 修改中'
+                          else
+diff -ruN a/su_linkhub/ui/soft_schedule.html b/su_linkhub/ui/soft_schedule.html
+--- a/su_linkhub/ui/soft_schedule.html	2026-10-16 06:01:11.074441428 +0000
++++ b/su_linkhub/ui/soft_schedule.html	2026-10-16 06:43:57.079650577 +0000
+@@ -47,7 +47,7 @@
+ .thumb-tool{width:22px;height:22px;padding:0;border:1px solid rgba(255,255,255,.8);border-radius:999px;background:rgba(30,36,48,.62);color:#fff;font-size:13px;line-height:20px;cursor:pointer}.thumb-tool:hover{background:#3b5bdb}
+ /* 清单布局：突出刷新/导出，把诊断与草稿提交收进各自的工作区。 */
+ .app{transition:padding-bottom .15s}.app.has-drafts{padding-bottom:58px}.header{padding:10px 12px 0}.head-row{min-height:42px;align-items:flex-start;padding-bottom:9px}.brand{gap:9px}.mark{width:32px;height:32px;border-radius:8px}h1{font-size:16px;line-height:1.25}.sub{margin-top:2px;font-size:11px}.actions{gap:7px;flex-wrap:nowrap}.btn,.export-scope{height:32px;border-radius:8px;padding:0 11px;font-size:11px}.btn.primary{border-color:var(--primary);background:var(--primary);color:#fff;font-weight:850}.btn.primary:hover{border-color:#433d56;background:#4c465f}.btn.stale-refresh{border-color:#d29b33;background:#fff7df;color:#74500c}.export-group{gap:6px}.export-scope{min-width:112px;max-width:145px;border:1px solid #cfc9da;border-radius:8px;background:var(--primary-bg)}.export-group .btn{border-radius:8px}.diagnostic-menu{position:relative}.diagnostic-menu summary{display:flex;align-items:center;list-style:none}.diagnostic-menu summary::-webkit-details-marker{display:none}.diagnostic-menu[open] summary{border-color:#bfc4cd;background:#f7f8fa}.diagnostic-popover{position:absolute;right:0;top:38px;z-index:80;width:178px;padding:5px;border:1px solid var(--line);border-radius:8px;background:#fff;box-shadow:0 12px 30px rgba(23,32,51,.18)}.diagnostic-popover .btn{display:block;width:100%;border:0;text-align:left;background:#fff}.diagnostic-popover .btn:hover{background:#f4f5f7}.model-change-notice{display:flex;align-items:center;justify-content:center;gap:10px;min-height:32px;margin:0 -12px;padding:5px 12px;border-top:1px solid #f2df9f;background:#fff8dc;color:#745a14;font-size:11px;font-weight:800}.model-change-notice[hidden]{display:none}.model-change-notice .btn{height:24px;border-color:#d5b75e;background:#fffdf4;color:#674d0c;padding:0 9px;font-weight:850}
+-.tabs{gap:7px;padding:7px 10px;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.tab{min-height:30px;border:1px solid #e3e6eb;border-radius:999px;background:#fff;color:#5f6875;padding:5px 11px;font-size:11px}.tab:hover{border-color:#c9ced6;background:#f7f8fa}.tab.active{border-color:#c9c2dc;background:var(--primary-bg);color:var(--primary);box-shadow:inset 0 0 0 1px rgba(88,81,111,.05)}.tab.total-tab{position:sticky;left:0;z-index:3;border-color:#d7d2e2;background:#fff;box-shadow:7px 0 10px rgba(245,246,248,.96)}.tab.total-tab.active{background:var(--primary-bg)}.tab-count{display:inline-grid;min-width:18px;height:18px;margin-left:5px;place-items:center;border-radius:99px;background:#eef0f3;color:#687182;padding:0 5px;font-size:10px;font-weight:800}.tab.active .tab-count{background:#dcd6e8;color:#4d4560}
++.tabs{gap:7px;padding:7px 10px;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}.tab{min-height:30px;border:1px solid #e3e6eb;border-radius:999px;background:#fff;color:#5f6875;padding:5px 11px;font-size:11px}.tab:hover{border-color:#c9ced6;background:#f7f8fa}.tab.active{border-color:#c9c2dc;background:var(--primary-bg);color:var(--primary);box-shadow:inset 0 0 0 1px rgba(88,81,111,.05)}.tab.total-tab{position:sticky;left:0;z-index:3;border-color:#d7d2e2;background:#fff;box-shadow:7px 0 10px rgba(245,246,248,.96)}.tab.total-tab.active{background:var(--primary-bg)}.tab-count{display:inline-grid;min-width:18px;height:18px;margin-left:5px;place-items:center;border-radius:99px;background:#eef0f3;color:#687182;padding:0 5px;font-size:10px;font-weight:800}.tab.active .tab-count{background:#dcd6e8;color:#4d4560}.tab.floor-tab .tab-count{background:rgba(255,255,255,.62);color:inherit}.tab.floor-tab.active .tab-count{background:rgba(255,255,255,.28);color:#fff}.tab.floor-tab:hover{filter:brightness(.97)}
+ .content{padding:9px 10px 10px}.sheet-head{align-items:flex-start;margin-bottom:7px;padding:0 2px}.sheet-copy{min-width:0}.sheet-title-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.sheet-title{font-size:15px}.status-chips{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.status-filter{height:25px;margin-left:0;border-color:#d9dde4!important;background:#fff;padding:0 9px;font-size:10px;line-height:23px}.status-filter.all-filter.active,.status-filter.clear-filter.active{border-color:#667085!important;background:#667085;color:#fff!important}.sheet-meta{font-size:11px;line-height:1.45}.sheet-summary{flex:0 0 auto;margin-top:3px;border-radius:999px;background:#eef0f3;color:#596273;padding:3px 9px;font-size:11px;font-weight:750}.table-wrap{border-radius:8px}thead th{height:33px;font-size:11px}.data-row td{font-size:11px}.subcategory-input{font-size:11px}.identity-label,.notes-label,.detail-label{font-size:9px}
+ .draft-action-bar{position:fixed;left:0;right:0;bottom:0;z-index:900;display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:58px;padding:9px 14px;border-top:1px solid #d7d2e2;background:rgba(255,255,255,.97);box-shadow:0 -8px 24px rgba(28,32,40,.10);backdrop-filter:blur(8px)}.draft-action-bar[hidden]{display:none}.draft-bar-copy{min-width:0}.draft-bar-title{display:block;color:#312b40;font-size:12px;font-weight:900}.draft-bar-hint{display:block;margin-top:2px;color:#747c89;font-size:10px}.draft-bar-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}.draft-action-bar .btn{height:34px}.draft-action-bar .view-pending{color:var(--primary);font-weight:800}
+ </style>
+@@ -241,7 +241,13 @@
+   function listId(prefix,row,key){return prefix+'-'+String(rowKey(row)+'-'+key).replace(/[^a-zA-Z0-9_-]/g,'_');}
+   function smartKey(prefix,row,key,values){var id=listId(prefix,row,key);smartOptions[id]=uniq(values);return id;}
+   function tabLabel(value){return String(value||'').replace(/^\s*\d+\s*[:：]\s*/,'');}
+-  function renderTabs(){var totalCount=(state.total_rows||[]).length,html='<button class="tab total-tab '+(activeSheet==='total'?'active':'')+'" data-sheet="total">总采购清单<span class="tab-count">'+totalCount+'</span></button>';html+=visibleSpaces().map(function(space){return '<button class="tab '+(String(space.id)===String(activeSheet)?'active':'')+'" data-sheet="'+esc(space.id)+'" title="'+esc(space.label)+'">'+esc(tabLabel(space.label))+'<span class="tab-count">'+space.rows.length+'</span></button>';}).join('');tabs.innerHTML=html;}
++  function renderTabs(){var totalCount=(state.total_rows||[]).length,html='<button class="tab total-tab '+(activeSheet==='total'?'active':'')+'" data-sheet="total">总采购清单<span class="tab-count">'+totalCount+'</span></button>';html+=floorColoredSpaces(visibleSpaces()).map(function(entry){var space=entry.space;return '<button class="tab floor-tab '+(String(space.id)===String(activeSheet)?'active':'')+'" data-sheet="'+esc(space.id)+'" title="'+esc((entry.floor?entry.floor+' · ':'')+space.label)+'" style="'+entry.style+'">'+esc(tabLabel(space.label))+'<span class="tab-count">'+space.rows.length+'</span></button>';}).join('');tabs.innerHTML=html;}
++  // v0.13.7.16：空间标签按楼层上色。同一楼层同一色系，楼层内按顺序改变饱和度和明度。
++  // 楼层优先取空间所在的空间组名（2F、3F…），没有分组时从名称识别“二层/三层/顶层/2F”等关键词。
++  var FLOOR_HUES=[212,146,28,276,350,186,48,316,96,250];
++  function cnNumber(text){var map={'一':1,'二':2,'两':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};if(/^\d+$/.test(text))return parseInt(text,10);var value=0,current=0;for(var i=0;i<text.length;i++){var ch=text.charAt(i);if(ch==='十'){value+=(current||1)*10;current=0;}else if(map[ch]){current=map[ch];}}return value+current;}
++  function floorOf(space){var sources=[String(space.group_name||''),String(space.space_name||''),tabLabel(space.label)];for(var i=0;i<sources.length;i++){var text=sources[i];if(!text)continue;var m=text.match(/(?:^|[^A-Za-z])(B|b|负)\s*(\d+|[一二三四五六七八九十]+)\s*(?:F|f|层|楼)?/);if(m)return {key:'B'+cnNumber(m[2]),rank:-cnNumber(m[2])};m=text.match(/(\d+)\s*(?:F|f|L|l|层|楼)/)||text.match(/([一二两三四五六七八九十]+)\s*(?:层|楼)/);if(m){var n=cnNumber(m[1]);if(n>0)return {key:n+'F',rank:n};}if(/顶层|屋顶|天台/.test(text))return {key:'顶层',rank:900};if(/地下/.test(text))return {key:'地下',rank:-1};if(i===0)return {key:text,rank:500};}return null;}
++  function floorColoredSpaces(list){var floors={},order=[];var rows=list.map(function(space,index){var floor=floorOf(space);if(floor&&!floors[floor.key]){floors[floor.key]={rank:floor.rank,count:0};order.push(floor.key);}return {space:space,index:index,floor:floor?floor.key:''};});order.sort(function(a,b){return floors[a].rank-floors[b].rank||order.indexOf(a)-order.indexOf(b);});rows.sort(function(a,b){var ra=a.floor?order.indexOf(a.floor):9999,rb=b.floor?order.indexOf(b.floor):9999;return ra-rb||a.index-b.index;});return rows.map(function(row){if(!row.floor){row.style='';return row;}var hue=FLOOR_HUES[order.indexOf(row.floor)%FLOOR_HUES.length],n=floors[row.floor].count++,step=n%5,sat=72-step*9,light=93-step*3;var active=String(row.space.id)===String(activeSheet);row.style=active?'background:hsl('+hue+','+sat+'%,'+(light-48)+'%);border-color:hsl('+hue+','+sat+'%,'+(light-56)+'%);color:#fff':'background:hsl('+hue+','+sat+'%,'+light+'%);border-color:hsl('+hue+','+sat+'%,'+(light-16)+'%);color:hsl('+hue+',45%,28%)';return row;});}
+   function renderExportScope(){if(activeCategory!=='all'&&categories().indexOf(activeCategory)<0)activeCategory='all';exportScope.setAttribute('data-value',activeCategory);exportScope.innerHTML='<span>'+esc(activeCategory==='all'?'全部分类':activeCategory)+'</span>';exportScope.style.cssText=activeCategory==='all'?'':categoryStyle(activeCategory);}
+   function categoryEditor(row){var value=draftModelValue(row,'category')||'其他';return '<button type="button" class="cell-select category-select picker-button'+(fieldDirty(row,'category')?' dirty':'')+'" data-field="category" data-picker="category" data-value="'+esc(value)+'" aria-haspopup="listbox" aria-expanded="false" style="'+categoryStyle(value)+'"><span>'+esc(value)+'</span></button>';}
+   function subcategoryEditor(row){var category=draftModelValue(row,'category')||'其他',id=smartKey('subcats',row,category,subcategoryValues(row,category)),value=draftModelValue(row,'subcategory');return '<input class="cell-input subcategory-input smart-input'+(fieldDirty(row,'subcategory')?' dirty':'')+'" data-field="subcategory" data-recent="subcategory:'+esc(category)+'" data-smart-key="'+esc(id)+'" autocomplete="off" value="'+esc(value)+'" title="单击展开已有子类；双击可直接编辑；回车确认">';}
+diff -ruN a/su_linkhub/ui_drawer.rb b/su_linkhub/ui_drawer.rb
+--- a/su_linkhub/ui_drawer.rb	2026-10-16 06:01:11.078387430 +0000
++++ b/su_linkhub/ui_drawer.rb	2026-10-16 06:44:58.529279516 +0000
+@@ -2026,6 +2026,7 @@
+ 
+         def refresh_group_progress
+           return 1.0 unless refresh_group_expandable?
++          return 1.0 if toolbar_groups_always_expanded?
+           [[@refresh_group_progress.to_f, 0.0].max, 1.0].min
+         rescue StandardError
+           0.0
+@@ -2051,8 +2052,13 @@
+           false
+         end
+ 
++        # v0.13.7.16：工具条按钮组默认全部展开，不再需要鼠标悬停才显示。
++        def toolbar_groups_always_expanded?
++          true
++        end
++
+         def mode_switch_progress
+-          return 1.0 if space_edit_tools_auto_expanded?
++          return 1.0 if space_edit_tools_auto_expanded? || toolbar_groups_always_expanded?
+           [[@mode_switch_progress.to_f, 0.0].max, 1.0].min
+         rescue StandardError
+           0.0
+@@ -2067,7 +2073,7 @@
+ 
+         def library_group_progress
+           return 1.0 unless library_group_expandable?
+-          return 1.0 if space_edit_tools_auto_expanded?
++          return 1.0 if space_edit_tools_auto_expanded? || toolbar_groups_always_expanded?
+           [[@library_group_progress.to_f, 0.0].max, 1.0].min
+         rescue StandardError
+           0.0
+@@ -3273,6 +3279,9 @@
+                   enabled: row['visibility_enabled'] == true
+                 }
+                 controls << { action: row['action'].to_s, rect: action_rect, tooltip: row['tooltip'].to_s, enabled: row['enabled'] != false } unless row['action'].to_s.empty?
++              elsif drawer_row_attention?(row)
++                right_edge = card[:x] + card[:width] - 4.0
++                controls << { action: row['action'].to_s, rect: [right_edge - 28.0, control_y, 28.0, 26.0], tooltip: row['tooltip'].to_s, enabled: true }
+               end
+             end
+ 
+@@ -3381,6 +3390,8 @@
+                 visibility_action = "drawer_space_visibility_disabled:#{row['id']}" if visibility_action.empty?
+                 controls << { action: visibility_action, rect: [x + 198.0, control_y, 26.0, 26.0], tooltip: row['visibility_tooltip'].to_s, enabled: row['visibility_enabled'] == true }
+                 controls << { action: row['action'].to_s, rect: [x + 232.0, control_y, 28.0, 26.0], tooltip: row['tooltip'].to_s, enabled: row['enabled'] != false } unless row['action'].to_s.empty?
++              elsif drawer_row_attention?(row)
++                controls << { action: row['action'].to_s, rect: [x + 232.0, control_y, 28.0, 26.0], tooltip: row['tooltip'].to_s, enabled: true }
+               end
+             end
+ 
+@@ -3710,7 +3721,7 @@
+         end
+ 
+         def drawer_mode_switch_progress
+-          return 1.0 if space_edit_tools_auto_expanded?
++          return 1.0 if space_edit_tools_auto_expanded? || toolbar_groups_always_expanded?
+           [[@drawer_mode_switch_progress.to_f, 0.0].max, 1.0].min
+         rescue StandardError
+           0.0
+@@ -4407,6 +4418,26 @@
+           nil
+         end
+ 
++        # v0.13.7.16：提醒类按钮（载入、更新、命名、发布、重试、恢复）常显示，
++        # 让用户一眼看到哪些空间/建筑需要处理；其他操作按钮仍然鼠标靠近才显示。
++        DRAWER_ATTENTION_ACTION_LABELS = %w[载入 更新 命名 发布 重试 恢复 继续].freeze
++
++        def drawer_row_attention?(row)
++          return false unless row.is_a?(Hash)
++          action = row['action'].to_s
++          return false if action.empty? || action.include?('_disabled:') || row['enabled'] == false
++          DRAWER_ATTENTION_ACTION_LABELS.include?(row['action_label'].to_s)
++        rescue StandardError
++          false
++        end
++
++        # 已载入但当前隐藏的卡片：整张卡片和文字变灰。
++        def drawer_row_hidden?(row)
++          row.is_a?(Hash) && row['loaded'] == true && row['visible'] != true
++        end
++
++        DRAWER_HIDDEN_TINT = [78, 82, 90].freeze
++
+         def drawer_action_icon(item)
+           label = item.is_a?(Hash) ? item['action_label'].to_s : item.to_s
+           return :upload if label.include?('发布')
+@@ -4787,10 +4818,11 @@
+         def draw_collection_group_row(view, x, width, row_y, row, architecture: false)
+           row_key = "#{row['kind']}:#{row['id']}"
+           hovered = @hover_row_key == row_key
++          group_hidden = !row['pseudo'] && (row['visibility_suspended'] || (row['visibility_enabled'] == true && row['visible'] != true))
+           base_group_tint = if row['pseudo']
+                               [68, 76, 91]
+-                            elsif row['visibility_suspended']
+-                              [43, 61, 92]
++                            elsif group_hidden
++                              DRAWER_HIDDEN_TINT
+                             elsif row['collapsed']
+                               hovered ? [50, 86, 142] : [43, 75, 125]
+                             else
+@@ -4837,7 +4869,8 @@
+                         when 'error' then [176, 54, 60]
+                         end
+           card = drawer_architecture_card_metrics(row, x, row_y, width)
+-          tint = selected ? [51, 111, 202] : status_tint
++          hidden_card = drawer_row_hidden?(row)
++          tint = selected ? [51, 111, 202] : (hidden_card ? DRAWER_HIDDEN_TINT : status_tint)
+           draw_glass_card(view, [card[:x], card[:y], card[:width], card[:height]], card[:grouped] ? 13 : 15, tint: tint)
+           if card[:grouped]
+             guide_x = x + 16.0
+@@ -4871,14 +4904,20 @@
+             draw_text_safe(view, field_x + 1.0, card[:y] + (card[:grouped] ? 14.0 : 16.0), status, rgba(188, 199, 218, 205), size: 7, bold: false)
+           else
+             dot_size = card[:grouped] ? 6.0 : 7.0
+-            draw_round_rect(view, card[:dot_x], card[:y] + (card[:height] - dot_size) / 2.0, dot_size, dot_size, dot_size / 2.0, rgba(rgb[0], rgb[1], rgb[2], 242))
++            dot_rgb = hidden_card ? [128, 134, 144] : rgb
++            draw_round_rect(view, card[:dot_x], card[:y] + (card[:height] - dot_size) / 2.0, dot_size, dot_size, dot_size / 2.0, rgba(dot_rgb[0], dot_rgb[1], dot_rgb[2], 242))
+             name = row['name'].to_s
+             max_name = card[:grouped] ? 19 : 18
+             name = name[0, max_name - 1] + '…' if name.length > max_name
+-            draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 0.7 : 1.1), name, rgba(245, 248, 252, 244), size: card[:grouped] ? 8 : 9, bold: true)
++            name_color = hidden_card ? rgba(150, 156, 166, 220) : rgba(245, 248, 252, 244)
++            draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 0.7 : 1.1), name, name_color, size: card[:grouped] ? 8 : 9, bold: true)
+             status = row['status'].to_s
++            status = "已隐藏 · #{status}" if hidden_card && !status.start_with?('已隐藏')
+             status = status[0, 15] + '…' if status.length > 16
+-            draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 14.0 : 16.0), status, rgba(188, 199, 218, 205), size: 7, bold: false)
++            draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 14.0 : 16.0), status, hidden_card ? rgba(132, 138, 148, 205) : rgba(188, 199, 218, 205), size: 7, bold: false)
++            if !hovered && drawer_row_attention?(row)
++              draw_icon_control(view, row['action'].to_s, drawer_action_icon(row), rgb, active: true)
++            end
+             if hovered
+               release = row['release_occupancy_action'].to_s
+               draw_icon_control(view, release, :unlock, [188, 78, 66], active: true) unless release.empty?
+@@ -4905,10 +4944,16 @@
+                         when 'error' then [176, 54, 60]
+                         end
+           card = drawer_space_card_metrics(row, x, row_y, width)
+-          tint = if row['linked_space'] == true
+-                   [43, 126, 211]
+-                 elsif selected
++          hidden_card = drawer_row_hidden?(row)
++          tint = if selected
+                    [51, 111, 202]
++                 elsif row['linked_space'] == true && row['loaded'] != true
++                   # 待载入的联动空间：与已载入的联动空间区分开，用“待处理”的橙色。
++                   [166, 104, 28]
++                 elsif hidden_card
++                   DRAWER_HIDDEN_TINT
++                 elsif row['linked_space'] == true
++                   [43, 126, 211]
+                  else
+                    publish_warning ? [176, 54, 60] : status_tint
+                  end
+@@ -4946,15 +4991,25 @@
+             draw_icon_control(view, "drawer_space_manage_locate:#{row['id']}", :locate, [47, 126, 177], active: row['loaded'] == true) if hovered
+           else
+             dot_size = card[:grouped] ? 6.0 : 7.0
+-            draw_round_rect(view, card[:dot_x], card[:y] + (card[:height] - dot_size) / 2.0, dot_size, dot_size, dot_size / 2.0, rgba(rgb[0], rgb[1], rgb[2], 242))
++            dot_rgb = hidden_card ? [128, 134, 144] : rgb
++            draw_round_rect(view, card[:dot_x], card[:y] + (card[:height] - dot_size) / 2.0, dot_size, dot_size, dot_size / 2.0, rgba(dot_rgb[0], dot_rgb[1], dot_rgb[2], 242))
+             name = row['name'].to_s
+             max_name = card[:grouped] ? 17 : 18
+             name = name[0, max_name - 1] + '…' if name.length > max_name
+-            draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 0.7 : 1.1), name, rgba(245, 248, 252, 244), size: card[:grouped] ? 8 : 9, bold: true)
++            name_color = hidden_card ? rgba(150, 156, 166, 220) : rgba(245, 248, 252, 244)
++            draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 0.7 : 1.1), name, name_color, size: card[:grouped] ? 8 : 9, bold: true)
+             status = row['status'].to_s
++            status = "已隐藏 · #{status}" if hidden_card && !status.start_with?('已隐藏')
+             status = status[0, 15] + '…' if status.length > 16
+-            color = publish_warning ? rgba(255, 205, 208, 232) : rgba(188, 199, 218, 205)
++            color = if hidden_card
++                      rgba(132, 138, 148, 205)
++                    else
++                      publish_warning ? rgba(255, 205, 208, 232) : rgba(188, 199, 218, 205)
++                    end
+             draw_text_safe(view, card[:text_x], card[:y] + (card[:grouped] ? 14.0 : 16.0), status, color, size: 7, bold: false)
++            if !hovered && drawer_row_attention?(row)
++              draw_icon_control(view, row['action'].to_s, drawer_action_icon(row), rgb, active: true)
++            end
+             if hovered
+               release = row['release_occupancy_action'].to_s
+               draw_icon_control(view, release, :unlock, [188, 78, 66], active: true) unless release.empty?
+diff -ruN a/su_linkhub.rb b/su_linkhub.rb
+--- a/su_linkhub.rb	2026-10-16 06:12:27.692371880 +0000
++++ b/su_linkhub.rb	2026-10-16 06:49:30.016579407 +0000
+@@ -8,7 +8,7 @@
+   # 会导致常量和启动方法互相覆盖，并把 runtime.rb 错指到其他插件目录。
+   module SULinkHubMultiSpace
+     EXTENSION_NAME = 'SU LinkHub 多空间联动' unless const_defined?(:EXTENSION_NAME, false)
+-    EXTENSION_VERSION = '0.13.7.15' unless const_defined?(:EXTENSION_VERSION, false)
++    EXTENSION_VERSION = '0.13.7.16' unless const_defined?(:EXTENSION_VERSION, false)
+ 
+     unless file_loaded?(__FILE__)
+       extension = SketchupExtension.new(EXTENSION_NAME, 'su_linkhub/main')
