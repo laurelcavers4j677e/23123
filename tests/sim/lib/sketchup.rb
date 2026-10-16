@@ -645,3 +645,24 @@ module Sketchup
   class Tool; end
 end
 SB_PROMPT = 0 unless defined?(SB_PROMPT); SB_VCB_LABEL = 1 unless defined?(SB_VCB_LABEL); SB_VCB_VALUE = 2 unless defined?(SB_VCB_VALUE)
+module Sketchup
+  class Color
+    attr_reader :red, :green, :blue, :alpha
+    def initialize(r = 0, g = 0, b = 0, a = 255) = (@red, @green, @blue, @alpha = r, g, b, a)
+    def to_a = [red, green, blue, alpha]
+    def inspect = "rgba(#{to_a.join(',')})"
+  end
+end
+GL_POINTS = 0 unless defined?(GL_POINTS)
+GL_LINES = 1 unless defined?(GL_LINES)
+GL_LINE_LOOP = 2 unless defined?(GL_LINE_LOOP)
+GL_LINE_STRIP = 3 unless defined?(GL_LINE_STRIP)
+GL_TRIANGLES = 4 unless defined?(GL_TRIANGLES)
+GL_TRIANGLE_STRIP = 5 unless defined?(GL_TRIANGLE_STRIP)
+GL_TRIANGLE_FAN = 6 unless defined?(GL_TRIANGLE_FAN)
+GL_QUADS = 7 unless defined?(GL_QUADS)
+GL_QUAD_STRIP = 8 unless defined?(GL_QUAD_STRIP)
+GL_POLYGON = 9 unless defined?(GL_POLYGON)
+TextAlignLeft = 0 unless defined?(TextAlignLeft)
+TextAlignCenter = 1 unless defined?(TextAlignCenter)
+TextAlignRight = 2 unless defined?(TextAlignRight)
