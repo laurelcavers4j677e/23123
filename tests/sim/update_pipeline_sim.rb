@@ -109,6 +109,8 @@ job3 = { model: model, success: 0, replaced: 0, completed: [], done: 0, errors: 
 RT.finish_soft_visual_proxy_candidate_success!(job3, { model_id: 'M1', model_name: '桌子', proxy_task_id: t3 }, { replaced: 0 }, task_id: t3)
 snap3 = RT.task_center_job_snapshot(t3)
 check.call(snap3[:status] == 'failed' && snap3[:stage_label].include?('未启动'), "enqueue failure reported as #{snap3[:status]} #{snap3[:stage_label]}")
+kept = Array(RT.instance_variable_get(:@soft_thumbnail_view_queue)).find { |j| j[:id] == 'M1' }
+check.call(kept && kept[:pipeline_task_id].to_s.empty?, 'repair thumbnail job not kept in queue after timer failure')
 RT.singleton_class.send(:remove_method, :ensure_soft_thumbnail_view_driver!)
 RT.instance_variable_set(:@soft_thumbnail_view_queue, [])
 

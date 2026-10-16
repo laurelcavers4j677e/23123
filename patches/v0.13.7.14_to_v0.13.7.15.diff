@@ -121,7 +121,7 @@ diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
      # v0.13.7.12：朝向相机卡片入库尺寸改按轴向量测量、空间内捕获尺寸不再丢弃、库尺寸记录组件自身轴向尺寸、失败提示带原因。
 diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
 --- a/su_linkhub/proxy_queue.rb	2026-10-14 09:36:39.000000000 +0000
-+++ b/su_linkhub/proxy_queue.rb	2026-10-16 06:16:58.809039020 +0000
++++ b/su_linkhub/proxy_queue.rb	2026-10-16 06:19:57.946057919 +0000
 @@ -216,6 +216,16 @@
        ''
      end
@@ -255,7 +255,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
        if candidate[:legacy_recovery] == true
          remaining_legacy = Array(candidate[:replace_instances]).select do |instance|
            instance && instance.valid? && soft_legacy_proxy_entity?(instance) &&
-@@ -1708,7 +1758,16 @@
+@@ -1708,7 +1758,17 @@
            # v0.13.7.4：任务队列里的总耗时包含排队和“等待退出空间”；单独标出实际生成用时。
            detail += " · 实际生成 #{(monotonic_time - candidate[:active_started_at].to_f).round}s（其余为排队/等待空闲）"
          end
@@ -265,15 +265,16 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
 +          (job[:thumbnail_pipeline_names] ||= []) << label
 +        elsif candidate[:reuse_existing] != true
 +          # 代理已重建，但轴测阶段没能排队（例如定时器创建失败）：不能报“8 张全部完成”。
++          # 排队失败时任务仍留在缩略图队列里（见 enqueue_soft_thumbnail_views!），下次排队或重载插件时补齐。
 +          enqueue_soft_thumbnail_views!(candidate[:model_id].to_s, reason: '六面代理完成（补齐）', force: true) rescue nil
-+          finish_task_center_job!(task_id, success: false, stage: '六面完成 · 轴测缩略图未启动', detail: "#{detail} · 轴测缩略图将在空闲时补齐")
++          finish_task_center_job!(task_id, success: false, stage: '六面完成 · 轴测缩略图未启动', detail: "#{detail} · 轴测缩略图已留在队列中，下次缩略图任务启动或重载插件时补齐")
 +        else
 +          finish_task_center_job!(task_id, success: true, stage: '六面代理完成', detail: detail)
 +        end
          sync_task_center_overlay_ui!(model) rescue nil
        end
        log("六面代理升级完成：#{label} / 替换当前项目实例 #{result[:replaced].to_i} / 消费待提交 #{consumed_pending}")
-@@ -1999,7 +2058,11 @@
+@@ -1999,7 +2059,11 @@
          if repair_job
            show_workspace_floating_notice("已自动修复代理 · #{repaired_names}", 'success', progress: 100, duration: 3.0, model: model) unless Array(job[:repaired_names]).empty?
          elsif job[:success].to_i.positive?
@@ -864,7 +865,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          @project_state_cache = {}
 diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
 --- a/su_linkhub/thumbnail_views.rb	2026-10-14 09:36:39.000000000 +0000
-+++ b/su_linkhub/thumbnail_views.rb	2026-10-16 06:04:33.267426259 +0000
++++ b/su_linkhub/thumbnail_views.rb	2026-10-16 06:19:57.945409710 +0000
 @@ -34,14 +34,44 @@
          File.join(soft_library_thumbnail_dir(root), "#{soft_model_id_for_path(source_path)}.view_#{view}#{hd ? '.hd' : ''}.png")
        end
@@ -955,7 +956,7 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
            end
            job[:immediate] ||= immediate
            job[:notify] ||= notify
-@@ -392,11 +435,26 @@
+@@ -392,11 +435,27 @@
                    force: force, done: [], attempts: 0, queued_at: monotonic_time }
            @soft_thumbnail_view_queue << job
          end
@@ -978,13 +979,14 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
          end
 -        ensure_soft_thumbnail_view_driver!
 +        unless ensure_soft_thumbnail_view_driver!
-+          @soft_thumbnail_view_queue.delete(job)
++          # 定时器没建起来：任务保留在队列里（解除统一任务关联），下一次排队或插件重载时会重新启动处理。
++          job[:pipeline_task_id] = '' if pipeline
 +          raise '无法启动缩略图生成定时器。'
 +        end
          true
        rescue StandardError => e
          log_exception('缩略图视图排队失败', e)
-@@ -409,7 +467,60 @@
+@@ -409,7 +468,60 @@
          @soft_thumbnail_view_timer = runtime_start_timer(0.4, true, label: 'library:thumbnail_views', key: 'library:thumbnail_views') do
            process_soft_thumbnail_view_queue_tick!
          end
@@ -1021,7 +1023,7 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
 +        sync_task_center_overlay_ui!(model) rescue nil
 +        label = job[:pipeline_label].to_s
 +        show_workspace_floating_notice("家具更新#{label.empty? ? '' : " · #{label}"} · #{stage}", 'info', progress: progress, persistent: true, model: model) rescue nil
-+        true
+         true
 +      rescue StandardError
 +        false
 +      end
@@ -1039,13 +1041,13 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
 +        end
 +        sync_task_center_overlay_ui!(model) rescue nil
 +        job[:pipeline_task_id] = ''
-         true
++        true
 +      rescue StandardError
 +        false
        end
  
        def stop_soft_thumbnail_view_driver!
-@@ -438,14 +549,33 @@
+@@ -438,14 +550,33 @@
          end
          model = Sketchup.active_model
          job = queue.first
@@ -1083,7 +1085,7 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
            return
          end
          root = soft_library_root
-@@ -456,11 +586,16 @@
+@@ -456,11 +587,16 @@
                                          soft_thumbnail_view_current?(source_path, view, root, hd: true))
          end
          unless pending.empty?
@@ -1101,7 +1103,7 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
            if result[:face_camera]
              # 片状朝向相机组件：只保留正视图，固定使用 front。
              job[:views] = ['front']
-@@ -475,6 +610,7 @@
+@@ -475,6 +611,7 @@
          if apply_soft_thumbnail_preferred_view!(source_path, root)
            queue.shift
            send_soft_thumbnail_view_update!(item, source_path, root)
@@ -1109,7 +1111,7 @@ diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
            show_status("“#{item['name']}”缩略图已更新。", 'success') if job[:notify]
          else
            raise '无法应用新缩略图，旧缩略图已保留。'
-@@ -486,6 +622,7 @@
+@@ -486,6 +623,7 @@
            job[:local_stage] = true
            if job[:attempts] >= 2
              queue.delete(job)
