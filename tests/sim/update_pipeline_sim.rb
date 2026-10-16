@@ -76,6 +76,42 @@ sidecar = RT.soft_thumbnail_view_signature_path(RT.soft_thumbnail_view_path(sour
 check.call(!RT.soft_thumbnail_view_current?(source, 'a', LIB), 'stale view accepted after source rewrite with same mtime (size changed)')
 puts "view freshness: sidecar=#{File.basename(sidecar)} stale-detected=#{!RT.soft_thumbnail_view_current?(source, 'a', LIB)}"
 
+# 同大小、同修改时间的改写（NAS 粗时间精度）：本机写库会删除源签名记录，旧视图不再算最新。
+RT.instance_variable_set(:@soft_thumbnail_view_queue, [])
+rendered.clear
+RT.enqueue_soft_thumbnail_views!('M1', reason: '用户刷新', immediate: true, force: true)
+3.times { RT.process_soft_thumbnail_view_queue_tick! }
+check.call(RT.soft_thumbnail_view_current?(source, 'a', LIB), 're-rendered view not current')
+mtime = File.mtime(source)
+size = File.size(source)
+File.write(source, 'x' * size)
+File.utime(mtime, mtime, source)
+check.call(RT.soft_thumbnail_view_current?(source, 'a', LIB), 'precondition: same-size same-mtime rewrite is invisible to the file signature')
+rev_before = RT.soft_library_source_revision(source)
+RT.note_soft_library_source_rewritten!(source, LIB)
+check.call(!RT.soft_thumbnail_view_current?(source, 'a', LIB), 'same-size same-mtime rewrite: stale view still accepted')
+check.call(RT.soft_library_source_revision(source) == rev_before + 1, 'source revision not bumped')
+puts "same-size rewrite: stale-detected=#{!RT.soft_thumbnail_view_current?(source, 'a', LIB)} revision=#{RT.soft_library_source_revision(source)}"
+
+# 热重载：进入轴测阶段的任务不会永远停在 75–88%。
+t2 = RT.start_soft_furniture_update_task!('沙发')
+RT.update_task_center_job!(t2, progress: 75, stage: '六面完成', status: 'running', raw: true)
+RT.instance_variable_set(:@soft_thumbnail_view_queue, [{ id: 'M1', pipeline_task_id: t2, done: ['a'], attempts: 0 }])
+RT.recover_soft_thumbnail_pipeline_after_reload!
+snap2 = RT.task_center_job_snapshot(t2)
+check.call(snap2[:status] == 'failed' && RT.instance_variable_get(:@soft_thumbnail_view_queue).first[:pipeline_task_id].to_s.empty?, "reload recovery: #{snap2[:status]}")
+RT.instance_variable_set(:@soft_thumbnail_view_queue, [])
+
+# 轴测阶段排不进队列时，不能把统一任务报成成功。
+t3 = RT.start_soft_furniture_update_task!('桌子')
+RT.define_singleton_method(:ensure_soft_thumbnail_view_driver!) { false }
+job3 = { model: model, success: 0, replaced: 0, completed: [], done: 0, errors: [] }
+RT.finish_soft_visual_proxy_candidate_success!(job3, { model_id: 'M1', model_name: '桌子', proxy_task_id: t3 }, { replaced: 0 }, task_id: t3)
+snap3 = RT.task_center_job_snapshot(t3)
+check.call(snap3[:status] == 'failed' && snap3[:stage_label].include?('未启动'), "enqueue failure reported as #{snap3[:status]} #{snap3[:stage_label]}")
+RT.singleton_class.send(:remove_method, :ensure_soft_thumbnail_view_driver!)
+RT.instance_variable_set(:@soft_thumbnail_view_queue, [])
+
 # ---------- 3. 自动视图等待同款代理 ----------
 RT.instance_variable_set(:@soft_thumbnail_view_queue, [])
 rendered.clear

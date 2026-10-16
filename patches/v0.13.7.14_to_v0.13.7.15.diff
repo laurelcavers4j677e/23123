@@ -1,7 +1,7 @@
 diff -ruN a/CHANGELOG_v0.13.7.15.txt b/CHANGELOG_v0.13.7.15.txt
 --- a/CHANGELOG_v0.13.7.15.txt	1970-01-01 00:00:00.000000000 +0000
-+++ b/CHANGELOG_v0.13.7.15.txt	2026-10-16 06:12:27.694520664 +0000
-@@ -0,0 +1,47 @@
++++ b/CHANGELOG_v0.13.7.15.txt	2026-10-16 06:17:50.107548886 +0000
+@@ -0,0 +1,51 @@
 +SU LinkHub v0.13.7.15
 +
 +在 v0.13.7.14 基础上：全面检查后的稳定版（家具更新流程统一、可靠性修复、提速）。
@@ -23,6 +23,10 @@ diff -ruN a/CHANGELOG_v0.13.7.15.txt b/CHANGELOG_v0.13.7.15.txt
 +  组件轴），不同就按已修改处理。
 +- 修复：轴测缩略图是否最新改为按“生成时的源 SKP 签名”判断（视图旁的 .src 文件）。旧版只比较修改时间，
 +  NAS 时间精度粗时，改了轴/几何后的旧缩略图会被当成最新，清单和模型库继续显示旧图。
++  本机每次写库还会把该模型的轴测视图标记为过期，并递增源模型版本号；即使新旧 SKP 的修改时间和大小完全相同，
++  旧缩略图也不会被当成最新，生成中再次修改也能被识别。
++- 插件热重载后，已进入轴测阶段的“家具更新”任务明确结束（说明轴测转入后台补齐），不会停在 75–88%。
++- 轴测阶段没能排进队列时（例如定时器创建失败），任务显示“轴测缩略图未启动”，不再报“全部完成”。
 +
 +二、可靠性
 +- 读取空间协作锁失败（NAS 超时、锁文件损坏）时，旧版当作“没有锁”，清单改尺寸可能改到别人正在修改的空间。
@@ -40,7 +44,7 @@ diff -ruN a/CHANGELOG_v0.13.7.15.txt b/CHANGELOG_v0.13.7.15.txt
 +
 +三、速度
 +- 编辑时的结构审计（现场日志每次约 1.4 秒、频繁出现）先比较廉价的根层签名，根层没有变化就跳过。
-+  根层增删、炸开、成组、锁定、定义替换、修改会话变化仍会触发完整审计。
++  根层增删、炸开、成组、锁定、定义替换、空间外壳内容变化、修改会话变化仍会触发完整审计。
 +- 撤销/重做后的整页界面刷新改为 0.35 秒合并一次（旧版 0.03 秒，连续撤销时反复整页刷新）。
 +- 主面板的空间文件状态 3 秒内不重复访问 NAS。
 +
@@ -117,7 +121,7 @@ diff -ruN a/su_linkhub/main.rb b/su_linkhub/main.rb
      # v0.13.7.12：朝向相机卡片入库尺寸改按轴向量测量、空间内捕获尺寸不再丢弃、库尺寸记录组件自身轴向尺寸、失败提示带原因。
 diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
 --- a/su_linkhub/proxy_queue.rb	2026-10-14 09:36:39.000000000 +0000
-+++ b/su_linkhub/proxy_queue.rb	2026-10-16 06:05:36.836605637 +0000
++++ b/su_linkhub/proxy_queue.rb	2026-10-16 06:16:58.809039020 +0000
 @@ -216,6 +216,16 @@
        ''
      end
@@ -147,7 +151,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
        seed[:proxy_task_id] = task_id unless task_id.to_s.empty?
        sync_task_center_overlay_ui!(model) rescue nil
        task_id.to_s
-@@ -434,6 +441,25 @@
+@@ -434,6 +441,28 @@
            # 如果这个 seed 就是当前正在执行的同一 task，不要因为“退出空间”再次把它排一遍；
            # 若用户在当前生成过程中又修改了同款，新的 seed 会有不同 task_id，仍允许尾部重建一次。
            if (active = active_by_key[key]) && active[:proxy_task_id].to_s == item[:proxy_task_id].to_s
@@ -156,7 +160,10 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
 +            # 现在比较源签名：不同就在当前任务之后按最新源模型再排一次重建。
 +            active_signature = active_state.is_a?(Hash) ? active_state[:source_signature].to_s : ''
 +            current_signature = item[:source_path].to_s.empty? ? '' : soft_library_file_signature(item[:source_path].to_s, force: true).to_s
-+            if !active_signature.empty? && !current_signature.empty? && active_signature != current_signature
++            revision_changed = active_state.is_a?(Hash) && active_state.key?(:source_revision) && !item[:source_path].to_s.empty? &&
++                               soft_library_source_revision(item[:source_path].to_s) != active_state[:source_revision].to_i
++            signature_changed = !active_signature.empty? && !current_signature.empty? && active_signature != current_signature
++            if revision_changed || signature_changed
 +              rebuild = item.dup
 +              rebuild[:force_rebuild] = true
 +              rebuild[:reuse_existing] = false
@@ -173,7 +180,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
              active[:replace_instances] = (Array(active[:replace_instances]) + Array(item[:replace_instances])).select { |node| node && node.valid? }.uniq
              # v0.13.6.177：用户可能在任务已经成为 active candidate 之后才点击“代理”。
              # 这时也要把当前 candidate/state 晋升为可在空间内继续的高优先级任务，
-@@ -501,7 +527,13 @@
+@@ -501,7 +530,13 @@
          show_status("已启动六面代理维护：#{seeds.length} 款，范围=#{scope_space_id.to_s.empty? ? '当前选择' : '当前空间'}。", 'info')
        end
        reconcile_soft_visual_proxy_task_center!(model, @soft_visual_proxy_upgrade_job)
@@ -188,7 +195,12 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
        { queued: 0, total: seeds.length, running: true, scanning: true }
      rescue StandardError => e
        log_exception('启动六面代理升级失败', e)
-@@ -746,7 +778,9 @@
+@@ -742,11 +777,14 @@
+         candidate: candidate, source_definition: source_definition, bounds_values: values,
+         model_id: model_id, model_name: model_name, metadata: metadata,
+         source_path: source_path, source_signature: source_signature, target: target,
++        source_revision: soft_library_source_revision(source_path),
+         plans: soft_visual_proxy_incremental_plans(
            values, cache_dir,
            # v0.13.7.4：自动任务一律 128px（像素量约为 192px 的 44%，截图与抠图都更快）；
            # 只有用户在退出确认里明确选“立即更新”的单款任务保留 192px。
@@ -199,7 +211,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
          ), images: {},
          view_index: 0, phase: :capture,
          allow_inside_space: candidate[:allow_inside_space] == true,
-@@ -1060,9 +1094,12 @@
+@@ -1060,9 +1098,12 @@
        total = job.is_a?(Hash) ? [job[:scan_total].to_i, job[:total].to_i, 1].max : 1
        done = job.is_a?(Hash) ? job[:done].to_i : 0
        current_index = [[done + 1, 1].max, total].min
@@ -214,7 +226,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
        Sketchup.set_status_text("#{stage} · #{detail}") if Sketchup.respond_to?(:set_status_text)
        true
      rescue StandardError
-@@ -1087,7 +1124,7 @@
+@@ -1087,7 +1128,7 @@
          index = state[:capture_index].to_i
          current_plan = plans[[index, plans.length - 1].min]
          soft_visual_proxy_incremental_progress!(
@@ -223,7 +235,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
            "#{current_plan ? current_plan[:name] : ''} · 分片截图，视口保持可响应", model: model
          )
          budget = job[:foreground_exit_batch] ? SOFT_VISUAL_PROXY_CAPTURE_TICK_BUDGET_EXIT_BATCH : SOFT_VISUAL_PROXY_CAPTURE_TICK_BUDGET
-@@ -1684,8 +1721,17 @@
+@@ -1684,8 +1725,17 @@
          (job[:repaired_names] ||= []) << label
        end
        consumed_pending = complete_soft_pending_proxy_rebuilds_for_model!(candidate[:model_id].to_s, model)
@@ -243,7 +255,7 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
        if candidate[:legacy_recovery] == true
          remaining_legacy = Array(candidate[:replace_instances]).select do |instance|
            instance && instance.valid? && soft_legacy_proxy_entity?(instance) &&
-@@ -1708,7 +1754,12 @@
+@@ -1708,7 +1758,16 @@
            # v0.13.7.4：任务队列里的总耗时包含排队和“等待退出空间”；单独标出实际生成用时。
            detail += " · 实际生成 #{(monotonic_time - candidate[:active_started_at].to_f).round}s（其余为排队/等待空闲）"
          end
@@ -251,13 +263,17 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
 +        if thumbnail_pipeline
 +          update_task_center_job!(task_id, progress: 75, stage: '六面完成 · 6/8 · 接着生成轴测', detail: detail, status: 'running', raw: true)
 +          (job[:thumbnail_pipeline_names] ||= []) << label
++        elsif candidate[:reuse_existing] != true
++          # 代理已重建，但轴测阶段没能排队（例如定时器创建失败）：不能报“8 张全部完成”。
++          enqueue_soft_thumbnail_views!(candidate[:model_id].to_s, reason: '六面代理完成（补齐）', force: true) rescue nil
++          finish_task_center_job!(task_id, success: false, stage: '六面完成 · 轴测缩略图未启动', detail: "#{detail} · 轴测缩略图将在空闲时补齐")
 +        else
 +          finish_task_center_job!(task_id, success: true, stage: '六面代理完成', detail: detail)
 +        end
          sync_task_center_overlay_ui!(model) rescue nil
        end
        log("六面代理升级完成：#{label} / 替换当前项目实例 #{result[:replaced].to_i} / 消费待提交 #{consumed_pending}")
-@@ -1999,7 +2050,11 @@
+@@ -1999,7 +2058,11 @@
          if repair_job
            show_workspace_floating_notice("已自动修复代理 · #{repaired_names}", 'success', progress: 100, duration: 3.0, model: model) unless Array(job[:repaired_names]).empty?
          elsif job[:success].to_i.positive?
@@ -272,8 +288,49 @@ diff -ruN a/su_linkhub/proxy_queue.rb b/su_linkhub/proxy_queue.rb
          show_workspace_floating_notice("代理刷新完成 · 失败：#{failed_names}#{job[:success].to_i.positive? ? " · 成功：#{success_names}" : ''}", 'warning', progress: 100, duration: 4.5, model: model)
 diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
 --- a/su_linkhub/runtime.rb	2026-10-14 09:36:57.000000000 +0000
-+++ b/su_linkhub/runtime.rb	2026-10-16 06:10:36.607814950 +0000
-@@ -1627,7 +1627,23 @@
++++ b/su_linkhub/runtime.rb	2026-10-16 06:17:31.623314967 +0000
+@@ -1595,6 +1595,40 @@
+       @task_center_registry ||= {}
+     end
+ 
++    # v0.13.7.15：热重载后旧运行代的缩略图定时器全部失效。仍在队列里的轴测任务改为普通补齐任务，
++    # 已经进入轴测阶段（≥75%）的“家具更新”任务明确结束并说明原因，不会永远停在 75–88%。
++    def recover_soft_thumbnail_pipeline_after_reload!
++      @soft_thumbnail_view_timer = nil
++      queue = @soft_thumbnail_view_queue.is_a?(Array) ? @soft_thumbnail_view_queue : []
++      live_ids = {}
++      queue.each do |job|
++        next unless job.is_a?(Hash)
++        task_id = job[:pipeline_task_id].to_s
++        live_ids[task_id] = true unless task_id.empty?
++        job[:pipeline_task_id] = ''
++        job[:done] = []
++        job[:attempts] = 0
++      end
++      stranded = []
++      @task_center_mutex ||= Mutex.new
++      @task_center_mutex.synchronize do
++        (@task_center_registry || {}).each_value do |row|
++          next unless row[:kind].to_s == 'visual_proxy' && row[:progress_scale]
++          next unless %w[queued running].include?(row[:status].to_s) && row[:progress].to_i >= 75
++          stranded << row[:task_id].to_s
++        end
++      end
++      (stranded | live_ids.keys).each do |task_id|
++        finish_task_center_job!(task_id, success: false, stage: '插件已重载 · 轴测缩略图转入后台补齐',
++                                detail: '源模型与六面代理已完成；两张轴测缩略图会在空闲时自动生成')
++      end
++      ensure_soft_thumbnail_view_driver! if queue.any? && respond_to?(:ensure_soft_thumbnail_view_driver!)
++      true
++    rescue StandardError => e
++      log_exception('热重载后恢复缩略图队列失败', e)
++      false
++    end
++
+     def start_task_center_job!(kind, label:, task_id: nil, stage: '等待开始', progress: 0, detail: '', status: 'queued')
+       @task_center_mutex ||= Mutex.new
+       @task_center_registry ||= {}
+@@ -1627,7 +1661,23 @@
        ''
      end
  
@@ -298,7 +355,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        id = task_id.to_s
        return false if id.empty?
        @task_center_mutex ||= Mutex.new
-@@ -1641,7 +1657,15 @@
+@@ -1641,7 +1691,15 @@
          old_progress = job[:progress].to_i
          old_stage = job[:stage_label].to_s
          old_status = job[:status].to_s
@@ -315,7 +372,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          unless stage.nil?
            job[:stage] = stage.to_s
            job[:stage_label] = stage.to_s
-@@ -4048,12 +4072,49 @@
+@@ -4048,12 +4106,49 @@
        ''
      end
  
@@ -366,7 +423,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        end
  
        # 兼容热加载升级前已经建立的旧会话；旧会话没有事务标记，只能沿用内容签名。
-@@ -5453,9 +5514,11 @@
+@@ -5453,9 +5548,11 @@
          immediate ? "正在保存并更新代理 · #{record[:model_name]}" : "已保留修改 · #{record[:model_name]} · 退出空间后统一更新代理",
          'info', persistent: immediate, duration: (immediate ? nil : 2.8), model: model
        )
@@ -379,7 +436,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        if ok && immediate
          request_immediate_soft_proxy_refresh!(model_id, scope_space_id: scope_space_id, model: model)
        elsif ok
-@@ -5756,6 +5819,7 @@
+@@ -5756,6 +5853,7 @@
        edit_record = soft_individual_edit_session(model)
        if edit_record
          edit_record[:ignore_transactions_until] = monotonic_time + 0.18
@@ -387,7 +444,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          edit_record[:observe_changes] = true
          edit_record[:last_inside_at] = monotonic_time
          ensure_soft_individual_edit_entities_observer!(edit_record, model)
-@@ -6853,7 +6917,7 @@
+@@ -6853,7 +6951,7 @@
        token = SecureRandom.hex(6)
        @native_history_refresh_tokens[model.object_id] = token
        GavinTools::SULinkHubMultiSpace::Runtime.runtime_start_timer(
@@ -396,7 +453,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          model: model, active_model_only: true
        ) do
          next unless @native_history_refresh_tokens[model.object_id] == token
-@@ -14153,12 +14217,17 @@
+@@ -14153,12 +14251,17 @@
        raise '真模型有效外包盒无效。' unless soft_bounds_values_valid?(full_values)
        proxy_extents = soft_bounds_axis_extents_from_values(proxy_values)
        full_extents = soft_bounds_axis_extents_from_values(full_values)
@@ -420,7 +477,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        source_anchor = soft_bounds_bottom_center_from_values(proxy_values)
        target_anchor = soft_bounds_bottom_center_from_values(full_values)
        x_axis = Geom::Vector3d.new(scale_x, 0.0, 0.0)
-@@ -16572,8 +16641,12 @@
+@@ -16572,8 +16675,12 @@
          'started_at' => record['started_at'].to_s,
          'heartbeat_at' => record['heartbeat_at'].to_s
        }
@@ -435,7 +492,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
      end
  
      def apply_space_lock_record_to_item!(item, record, actor_role: '')
-@@ -27046,6 +27119,8 @@
+@@ -27046,6 +27153,8 @@
            end
          elsif entity_native_locked?(entity)
            ['space_root_locked', "空间“#{label}”的根组件被锁定了。请先点击该空间的 LinkHub“修改”（不要用 SketchUp 右键解锁）。"]
@@ -444,7 +501,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          elsif !lock['exists']
            ['lock_missing', "空间“#{label}”的协作占用已经释放（可能已发布或已退出修改）。请重新点击该空间的 LinkHub“修改”。"]
          elsif lock['stale']
-@@ -27336,12 +27411,21 @@
+@@ -27336,12 +27445,21 @@
      end
  
      def soft_transformation_from_box_snapshot(snapshot, new_definition)
@@ -471,7 +528,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        target_anchor = snapshot[:bottom_center]
        source_anchor = definition_bounds_bottom_center(new_definition)
        origin = Geom::Point3d.new(
-@@ -28855,6 +28939,7 @@
+@@ -28855,6 +28973,7 @@
      end
  
      def replace_selected_soft_block(model_id)
@@ -479,7 +536,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        model = Sketchup.active_model
        state, item, space_entity = current_local_editing_space(nil, model, required: true)
        library_item = soft_library_item(model_id, force: false)
-@@ -28868,6 +28953,7 @@
+@@ -28868,6 +28987,7 @@
        end
  
        model.start_operation("软装替换 #{library_item['name']}", true)
@@ -487,7 +544,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        if placeholder.is_a?(Sketchup::Group)
          placeholder = placeholder.to_component
          model.selection.clear
-@@ -28893,6 +28979,7 @@
+@@ -28893,6 +29013,7 @@
        model.selection.clear
        replaced.each { |entity| model.selection.add(entity) if entity.valid? }
        model.commit_operation
@@ -495,7 +552,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        record_library_recent('model', SOFT_SPACE_COLLECTION_KEY, library_item['id'], soft_library_root)
        refresh_dialog
        refresh_soft_designer_dialog(refresh_library: false, include_library: false, include_measurements: false)
-@@ -28900,7 +28987,8 @@
+@@ -28900,7 +29021,8 @@
        schedule_restore_default_select_tool(model, delay: 0.03, reason: '软装替换')
        true
      rescue StandardError
@@ -505,7 +562,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        raise
      end
  
-@@ -32103,12 +32191,18 @@
+@@ -32103,12 +32225,18 @@
              next unless record
              begin
                lock = space_lock_info(space, model, state: state)
@@ -526,7 +583,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
              end
              # v0.13.7.2：同款合并行带 variant_keys，尺寸同步作用到所有成员实例。
              wanted_keys = ([target_variant_key] + Array(change['variant_keys']).map(&:to_s)).reject(&:empty?).uniq
-@@ -32243,12 +32337,18 @@
+@@ -32243,12 +32371,18 @@
      end
  
      def definition_bounds_axis_bottom_center(definition, vertical_axis = 2, vertical_sign = 1)
@@ -551,7 +608,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        axis = vertical_axis.to_i
        axis = 2 unless (0..2).include?(axis)
        coords[axis] = vertical_sign.to_i < 0 ? maxs[axis] : mins[axis]
-@@ -32310,6 +32410,7 @@
+@@ -32310,6 +32444,7 @@
      end
  
      def update_soft_schedule_dimensions(json, model = Sketchup.active_model)
@@ -559,7 +616,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        payload = parse_soft_schedule_edit_payload(json)
        target_variant_key = payload['variant_key'].to_s
        raise '清单条目标识无效，请刷新后重试。' if target_variant_key.empty?
-@@ -32337,12 +32438,18 @@
+@@ -32337,12 +32472,18 @@
          next unless entity && entity.valid?
          begin
            lock = space_lock_info(space, model, state: state)
@@ -580,7 +637,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
          end
          matches = collect_soft_schedule_variant_instances(entity.definition, entity.transformation, target_variant_key)
          next if matches.empty?
-@@ -32357,10 +32464,12 @@
+@@ -32357,10 +32498,12 @@
        # v0.13.6.31：采购清单尺寸同步不再自动校正组件轴。
        # 已校对好的轴只能由家具入库/模型库维护流程显式处理。
        model.start_operation('采购清单同步组件尺寸', true)
@@ -593,7 +650,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        affected_space_ids.uniq.each { |space_id| bump_soft_measurement_revision(model, space_id) }
        soft_model_transaction_committed(model)
        unless soft_schedule_batch_applying?
-@@ -32372,7 +32481,8 @@
+@@ -32372,7 +32515,8 @@
        end
        true
      rescue StandardError
@@ -603,7 +660,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        raise
      end
  
-@@ -41988,7 +42098,14 @@
+@@ -41988,7 +42132,14 @@
        show_status("已登记待入库家具：#{names}；模型保持原状并以蓝色标记，你可以继续加入下一批，最后退出当前空间一次统一处理。", 'info')
        show_workspace_floating_notice("待入库 · #{names}", 'info', duration: 4.5, model: model)
        Sketchup.set_status_text("待入库 #{candidates.length} 项 · 可继续加批次 · 最后退出空间统一处理") if Sketchup.respond_to?(:set_status_text)
@@ -619,7 +676,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        true
      end
  
-@@ -42169,7 +42286,14 @@
+@@ -42169,7 +42320,14 @@
        show_status("家具入库已登记：#{scope_text}；#{names} 保持原状并以蓝色标记，退出空间后统一处理，期间可继续追加。", 'info')
        show_workspace_floating_notice("待入库 · #{names} · 退出空间后处理", 'info', duration: 4.5, model: model)
        Sketchup.set_status_text("待入库 #{candidates.length} 项 · 请正常退出当前空间") if Sketchup.respond_to?(:set_status_text)
@@ -635,7 +692,52 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        true
      end
  
-@@ -50517,13 +50641,38 @@
+@@ -43362,6 +43520,7 @@
+           raise '更新后的模型文件在验证结束后立即变化；未把变化后的文件当成本次写入版本。'
+         end
+         invalidate_soft_library_file_signature!(target)
++        note_soft_library_source_rewritten!(target)
+         {
+           'path' => target,
+           'backup' => backup.to_s,
+@@ -45190,6 +45349,36 @@
+       ''
+     end
+ 
++    # v0.13.7.15：本机每次成功改写模型库源 SKP 时递增版本号，并把该模型轴测视图标记为过期。
++    # NAS 时间精度粗时，改轴后的新 SKP 可能与旧文件“修改时间 + 大小”完全相同；只靠签名会把旧缩略图
++    # 当成最新，也会漏掉“生成过程中又被修改”的重建。版本号和删除记录不依赖文件时间。
++    def note_soft_library_source_rewritten!(path, root = soft_library_root)
++      key = normalize_soft_library_key(path)
++      @soft_library_source_revisions ||= {}
++      @soft_library_source_revisions[key] = @soft_library_source_revisions[key].to_i + 1
++      if respond_to?(:soft_thumbnail_view_path) && respond_to?(:soft_thumbnail_view_signature_path)
++        %w[a b front].each do |view|
++          [false, true].each do |hd|
++            image = soft_thumbnail_view_path(path, view, root, hd: hd)
++            next unless File.file?(image)
++            # 写入“已过期”标记（而不是删除）：没有记录的旧视图会退回按修改时间判断，
++            # 源文件保留原修改时间时仍可能被误判为最新。
++            File.write(soft_thumbnail_view_signature_path(image), "stale:#{Time.now.to_f}")
++          end
++        end
++      end
++      true
++    rescue StandardError => e
++      log_exception('记录模型库源文件改写失败', e)
++      false
++    end
++
++    def soft_library_source_revision(path)
++      (@soft_library_source_revisions || {})[normalize_soft_library_key(path)].to_i
++    rescue StandardError
++      0
++    end
++
+     def invalidate_soft_library_file_signature!(path = nil)
+       @soft_library_file_signature_cache ||= {}
+       if path.to_s.empty?
+@@ -50517,13 +50706,39 @@
        ) do
          next unless @edit_structure_audit_tokens[key] == token
          next if soft_heavy_interaction?
@@ -661,8 +763,9 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
 +      rows = []
 +      model.entities.each do |entity|
 +        if entity.respond_to?(:definition) && entity.respond_to?(:get_attribute) && entity.get_attribute(ENTITY_DICT, 'managed', false)
++          wrapper_count = (world_wrapper_instance?(entity) ? entity.definition.entities.length : -1) rescue -1
 +          rows << [entity.persistent_id, entity.class.name, entity.locked?, entity.definition.object_id,
-+                   entity.transformation.to_a.map { |value| value.to_f.round(6) }]
++                   entity.transformation.to_a.map { |value| value.to_f.round(6) }, wrapper_count]
 +        else
 +          rows << entity.persistent_id
 +        end
@@ -675,7 +778,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
      def unlocked_managed_root_entries(state, model = Sketchup.active_model)
        entries = []
        # 只处理本机真实修改会话。模型载入/代真切换/更新事务中的瞬时解锁，或旧状态
-@@ -54620,7 +54769,7 @@
+@@ -54620,7 +54835,7 @@
          file_snapshot = if background_active && entity && entity.valid?
                            { exists: true, signature: item['last_signature'].to_s, size_mb: 0.0 }
                          else
@@ -684,7 +787,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
                          end
          exists = file_snapshot[:exists] == true
          actual_representation = entity && entity.valid? ? entity.get_attribute(ENTITY_DICT, 'space_representation', 'full').to_s : state['space_effective_display_mode'].to_s
-@@ -57662,7 +57811,12 @@
+@@ -57662,7 +57877,12 @@
        }
        show_consistency_update_progress!(@consistency_update_job, "一致性更新 0/#{total} · 准备中", 0)
        refresh_workspace_toolbar(model) rescue nil
@@ -698,7 +801,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        true
      rescue StandardError => e
        log_exception('启动空间与组件一致性更新失败', e)
-@@ -57671,10 +57825,10 @@
+@@ -57671,10 +57891,10 @@
      end
  
      def schedule_consistency_update_step!(token, delay: 0.08)
@@ -711,7 +814,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
      rescue StandardError => e
        log_exception('安排一致性更新步骤失败', e)
        false
-@@ -57684,7 +57838,18 @@
+@@ -57684,7 +57904,18 @@
        job = @consistency_update_job
        return false unless job.is_a?(Hash) && job[:token].to_s == token.to_s
        model = job[:model]
@@ -731,7 +834,7 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        return schedule_consistency_update_step!(token, delay: 0.30) if publish_critical_section? || publish_post_quiet? || @updating || @single_space_update_job || @space_batch_update_job || @shared_component_batch_update_job
  
        space_row = Array(job[:space_rows]).shift
-@@ -58016,8 +58181,19 @@
+@@ -58016,8 +58247,19 @@
        return false unless job.is_a?(Hash) && job[:token].to_s == token.to_s
        model = job[:model]
        unless model && model == Sketchup.active_model
@@ -751,6 +854,14 @@ diff -ruN a/su_linkhub/runtime.rb b/su_linkhub/runtime.rb
        if publish_critical_section? || publish_post_quiet? || @updating || @single_space_update_job || @space_batch_update_job
          return schedule_shared_component_batch_update_step!(token, delay: 0.30)
        end
+@@ -58871,6 +59113,7 @@
+         @soft_visual_proxy_driver_timer_id = nil
+         @soft_visual_proxy_watchdog_timer_id = nil
+         @soft_visual_proxy_driver_processing = false
++        recover_soft_thumbnail_pipeline_after_reload! rescue nil
+         @managed_root_indexes = {}
+         @managed_root_index_revisions = {}
+         @project_state_cache = {}
 diff -ruN a/su_linkhub/thumbnail_views.rb b/su_linkhub/thumbnail_views.rb
 --- a/su_linkhub/thumbnail_views.rb	2026-10-14 09:36:39.000000000 +0000
 +++ b/su_linkhub/thumbnail_views.rb	2026-10-16 06:04:33.267426259 +0000
